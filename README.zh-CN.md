@@ -53,8 +53,8 @@ python -m pip install -r booth-image-to-model/requirements.txt
 python web/server/run.py                                  # 打开 http://127.0.0.1:8800/
 ```
 
-还没有 key？在空白舞台点 **试用示例展台**，合成展台和它的模型会直接载入。自动读图需要设置 `OPENAI_API_KEY`（OpenAI；DeepSeek 用
-`--provider deepseek`；任何 OpenAI 兼容服务都可以）。工作台界面是中文；独立编辑器（`python web/tools/serve.py`）有中英文。
+还没有 key？在空白舞台点 **Try the demo booth**（试用示例展台），合成展台和它的模型会直接载入。自动读图需要设置 `OPENAI_API_KEY`（OpenAI；DeepSeek 用
+`--provider deepseek`；任何 OpenAI 兼容服务都可以）。工作台和独立编辑器（`python web/tools/serve.py`）的界面都是英文。
 
 ## 环境要求
 

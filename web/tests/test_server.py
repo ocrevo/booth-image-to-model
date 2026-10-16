@@ -162,7 +162,7 @@ class FlowSteps(StudioCase):
         for action in ('compile', 'auto'):
             status, body = self.api.call('POST', f'/api/jobs/{job}/{action}', {})
             self.assertEqual(status, 422, action)
-            self.assertIn('读图', body['error'])
+            self.assertIn('Read the picture', body['error'])
         for action in ('preview', 'build', 'glb'):
             status, body = self.api.call('POST', f'/api/jobs/{job}/{action}', {})
             self.assertEqual(status, 422, action)
@@ -310,7 +310,7 @@ class KeyHandling(StudioCase):
         job = self.new_job()
         status, body = self.api.call('POST', f'/api/jobs/{job}/read', {'mode': 'openai', 'consent': False})
         self.assertEqual(status, 422)
-        self.assertIn('同意', body['error'])
+        self.assertIn('I agree', body['error'])
         self.assertEqual(self.api.call('POST', '/api/config', {'openai_api_key': ''})[1]['openai']['configured'], False)
         self.assertFalse(any('sk-test-secret' in p.read_text(errors='ignore') for p in Path(self.studio.jobs.root).rglob('*.json')))
 

@@ -120,29 +120,29 @@ def _post(config, path, body, timeout):
                 message = text[:300]
             message = redact(str(message), config.api_key)
             if 300 <= ex.code < 400:
-                raise ReaderError(f'{config.base_url} 把请求重定向了（HTTP {ex.code}）；为了不把 key 发到别处，已停止。请把 OPENAI_BASE_URL 改成最终地址', {'http': ex.code}) from ex
+                raise ReaderError(f'{config.base_url} redirected the request (HTTP {ex.code}); stopped so the key is not sent elsewhere. Set OPENAI_BASE_URL to the final address', {'http': ex.code}) from ex
             if ex.code in (401, 403):
-                raise ReaderError(f'OpenAI 拒绝了这个 key（HTTP {ex.code}）：{message}', {'http': ex.code}) from ex
+                raise ReaderError(f'OpenAI rejected this key (HTTP {ex.code}): {message}', {'http': ex.code}) from ex
             hint = ''
             if ex.code == 400 and re.search(r'max.{0,12}tokens|token.{0,12}limit', message, re.I):
-                hint = '（输出上限被拒绝：用 OPENAI_MAX_OUTPUT_TOKENS 或 --openai-max-output-tokens 调小）'
-            last = ReaderError(f'OpenAI 返回 HTTP {ex.code}：{message}{hint}', {'http': ex.code})
+                hint = ' (the output limit was rejected: lower it with OPENAI_MAX_OUTPUT_TOKENS or --openai-max-output-tokens)'
+            last = ReaderError(f'OpenAI returned HTTP {ex.code}: {message}{hint}', {'http': ex.code})
             if ex.code not in RETRY_STATUS:
                 raise last from ex
             wait = _retry_wait(config, attempt, ex.headers)
             if wait and attempt < 2:
                 time.sleep(wait)
         except (socket.timeout, TimeoutError) as ex:
-            raise ReaderError(f'等了 {timeout} 秒 {config.base_url} 仍没有回答；没有再重试（重试会重复计费）', {'timeout': timeout}) from ex
+            raise ReaderError(f'Waited {timeout} s and {config.base_url} still has not answered; not retrying (a retry would be billed twice)', {'timeout': timeout}) from ex
         except (urllib.error.URLError, ConnectionError, http.client.HTTPException, json.JSONDecodeError) as ex:
             if isinstance(getattr(ex, 'reason', None), (socket.timeout, TimeoutError)):
-                raise ReaderError(f'等了 {timeout} 秒 {config.base_url} 仍没有回答；没有再重试（重试会重复计费）', {'timeout': timeout}) from ex
-            last = ReaderError(redact(f'连不上 {config.base_url}：{ex}', config.api_key))
+                raise ReaderError(f'Waited {timeout} s and {config.base_url} still has not answered; not retrying (a retry would be billed twice)', {'timeout': timeout}) from ex
+            last = ReaderError(redact(f'Cannot connect to {config.base_url}: {ex}', config.api_key))
             wait = _retry_wait(config, attempt)
             if wait and attempt < 2:
                 time.sleep(wait)
         except (ValueError, UnicodeError) as ex:                  # e.g. a header value Python refuses; its text would contain the key
-            raise ReaderError('请求发不出去：key 或地址里有不能放进 HTTP 头的字符') from ex
+            raise ReaderError('The request could not be sent: the key or the address contains characters that cannot go into an HTTP header') from ex
     raise last
 
 
@@ -154,7 +154,7 @@ def _call_responses(config, instructions, turns, schema, timeout):
         body['reasoning'] = {'effort': config.effort}
     data = _post(config, '/responses', body, timeout)
     if data.get('error'):
-        raise ReaderError(f"OpenAI 报错：{data['error'].get('message') or data['error']}", {'error': data['error']})
+        raise ReaderError(f"OpenAI reported an error: {data['error'].get('message') or data['error']}", {'error': data['error']})
     text, refusal = '', ''
     for item in data.get('output') or []:
         if item.get('type') == 'message':
@@ -164,10 +164,10 @@ def _call_responses(config, instructions, turns, schema, timeout):
                 elif part.get('type') == 'refusal':
                     refusal += part.get('refusal', '')
     if refusal:
-        raise ReaderError(f'模型拒绝了这个请求：{refusal[:300]}', {'refusal': refusal})
+        raise ReaderError(f'The model refused this request: {refusal[:300]}', {'refusal': refusal})
     if data.get('status') == 'incomplete':
         reason = (data.get('incomplete_details') or {}).get('reason')
-        raise ReaderError(f'模型的回答没有写完（{reason}）；可以调大 max_output_tokens 或换一个模型', {'incomplete': reason})
+        raise ReaderError(f'The model did not finish its answer ({reason}); raise max_output_tokens or use another model', {'incomplete': reason})
     usage = data.get('usage') or {}
     return {'text': text, 'usage': {'input_tokens': usage.get('input_tokens', 0), 'output_tokens': usage.get('output_tokens', 0)}, 'raw': data}
 
@@ -206,9 +206,9 @@ def _call_chat(config, instructions, turns, schema, timeout):
     choice = (data.get('choices') or [{}])[0]
     message = choice.get('message') or {}
     if message.get('refusal'):
-        raise ReaderError(f"模型拒绝了这个请求：{message['refusal'][:300]}", {'refusal': message['refusal']})
+        raise ReaderError(f"The model refused this request: {message['refusal'][:300]}", {'refusal': message['refusal']})
     if choice.get('finish_reason') == 'length':
-        raise ReaderError('模型的回答被长度截断；可以调大 max_output_tokens 或换一个模型', {'incomplete': 'length'})
+        raise ReaderError('The model answer was cut off by the length limit; raise max_output_tokens or use another model', {'incomplete': 'length'})
     usage = data.get('usage') or {}
     return {'text': message.get('content') or '', 'usage': {'input_tokens': usage.get('prompt_tokens', 0), 'output_tokens': usage.get('completion_tokens', 0)}, 'raw': data}
 
@@ -268,6 +268,6 @@ def read_scene(image_path, config, work_dir, timeout=900):
     (work / 'request.json').write_bytes(json.dumps({'style': config.style, 'model': config.model, 'base_url': config.base_url, 'instructions': instructions,
                                                     'turns': _redacted(turns), 'sent': sent, 'original': original, 'attempts': log}, ensure_ascii=False, indent=2).encode('utf-8'))
     if errors:
-        raise ReaderError(f'读了 {len(log)} 次，场景描述仍有 {len(errors)} 处不合格；原始回复在任务目录的 reader/ 里', {'errors': errors[:30], 'attempts': log})
+        raise ReaderError(f'Read {len(log)} times and the scene description still has {len(errors)} problems; the raw replies are in the reader/ folder of the job', {'errors': errors[:30], 'attempts': log})
     scene = scale_scene_pixels(scene, images['scale'], *original) if images['scale'] != 1 else {**scene, 'image': {'width': original[0], 'height': original[1]}}
     return {'scene': scene, 'usage': usage, 'attempts': len(log), 'seconds': round(time.time() - started, 1)}

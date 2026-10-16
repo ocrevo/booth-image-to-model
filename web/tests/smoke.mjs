@@ -137,7 +137,7 @@ async function main() {
     assert.equal(await ev('document.body.dataset.ready'), 'true');
     assert.equal(await ev('document.body.dataset.parts'), '79');
     assert.equal(await ev('document.body.dataset.error || ""'), '');
-    assert.match(await ev("document.getElementById('btnIssues').textContent"), /无问题/);
+    assert.match(await ev("document.getElementById('btnIssues').textContent"), /No problems/);
     assert.equal(await ev(`document.querySelectorAll('#outlineList .row').length > 10`), true);
     assert.equal(await ev("document.getElementById('btnWorkspace') === null && document.getElementById('linkFlow') === null"), true);   // no studio controls in static mode
     assert.deepEqual(await ev("performance.getEntriesByType('resource').map((r) => new URL(r.name).pathname).filter((p) => p.startsWith('/api'))"), []);   // and no calls to a server API
@@ -217,14 +217,14 @@ async function main() {
     assert.equal((await comp('table_b_top')).params.radius, 0.6);
     await setRadius(-1);
     assert.equal((await comp('table_b_top')).params.radius, 0.6);
-    assert.match(await ev("document.getElementById('message').textContent"), /已拒绝/);
+    assert.match(await ev("document.getElementById('message').textContent"), /Refused/);
   });
 
   await step('resizing the floor keeps the footprint in step', async () => {
     await ev(`${E}.select(['floor'])`);
     await ev(`(() => { const row = [...document.querySelectorAll('#inspector .field')].find((f) => f.querySelector('label')?.textContent.startsWith('size')); const el = row.querySelectorAll('input')[0]; el.value = '7'; el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
     assert.deepEqual(await spec('scale.footprint_m'), [7, 5]);
-    assert.match(await ev("document.getElementById('btnIssues').textContent"), /无问题/);
+    assert.match(await ev("document.getElementById('btnIssues').textContent"), /No problems/);
     await ev(`${E}.undo()`);
     assert.deepEqual(await spec('scale.footprint_m'), [6, 5]);
   });
@@ -235,13 +235,6 @@ async function main() {
     await shot('03_source_view.png');
     await mouse('mouseMoved', 700, 400); await mouse('mousePressed', 700, 400); await mouse('mouseMoved', 760, 430); await mouse('mouseReleased', 760, 430);
     assert.equal(await ev(`Boolean(${E}.viewport.matching)`), false);
-  });
-
-  await step('language toggle switches the UI', async () => {
-    await ev("document.getElementById('btnLang').click()");
-    assert.equal(await ev('document.title'), 'Booth Spec Editor');
-    await ev("document.getElementById('btnLang').click()");
-    assert.equal(await ev('document.title'), '展台规格编辑器');
   });
 
   await step('exported GLB loads in trimesh with one node per part and the groups', async () => {

@@ -3,9 +3,9 @@
 The web side of [booth-image-to-model](../README.md). Two pages, one folder:
 
 - **The studio** (`studio.html`, needs the local server): one window from a booth picture to an editable model and a clean
-  render. ① 选图 (choose a picture) → ② 生成模型 (make the model) → ③ 调整 (adjust) → ④ 出图 (render). The UI is in Chinese.
+  render. 1 Choose picture → 2 Make model → 3 Adjust → 4 Render. The UI is in English.
 - **The standalone editor** (`index.html`, no server): opens a `spec.json`, lets you move, turn, recolour, resize and
-  duplicate parts, and exports GLB. Everything stays in your browser; nothing is uploaded. Chinese and English UI.
+  duplicate parts, and exports GLB. Everything stays in your browser; nothing is uploaded. The UI is in English.
 
 ![The studio comparing a synthetic booth picture (left) with the live 3D model at the same camera (right)](../docs/images/studio-demo.png)
 
@@ -23,24 +23,24 @@ python web/server/run.py                             # opens http://127.0.0.1:88
 
 `run.py` names any missing package and stops. It prints where it found Blender (or that it did not), and whether a key is set.
 
-**Try it without a key:** on the empty stage click **试用示例展台** ("try the demo booth"). It loads a synthetic booth picture and its
+**Try it without a key:** on the empty stage click **Try the demo booth**. It loads a synthetic booth picture and its
 model, so you can adjust, compare and render at once. The demo and screenshot pictures are synthetic ([docs/sample-images.md](../docs/sample-images.md)).
 
 **With your own picture:** drop it on the stage (PNG or JPEG, ≤ 25 MB, ≤ 5 MP, no EXIF rotation). Then either:
-- tick the consent box and click **生成模型** (needs a key, see below), or
-- open **更多方式** ("more ways") and upload a scene description you wrote (`scene.json`, format in
+- tick the consent box ("I agree to send this picture to the configured large-model service") and click **Generate** (needs a key, see below), or
+- open **More ways** and upload a scene description you wrote (`scene.json`, format in
   [`references/scene-description.md`](../booth-image-to-model/references/scene-description.md)), or a `spec.json` made for this picture.
 
 What each step does underneath:
 
 | Step | You | Underneath |
 |---|---|---|
-| ① 选图 | drop or choose a picture | stored in `output/studio/<job>/` (git-ignored) |
-| ② 生成模型 | consent + "生成模型", or upload a file | a large model reads the picture into a scene description; the engine fits the camera from corner points and builds the parametric spec |
-| ③ 调整 | click, drag, recolour on the stage; compare with the picture (wipe, overlay, picture alone, model; hold Space to peek) | every change is saved 0.8 s later |
-| ④ 出图 | "出图", optionally a 15-second quick check first | Blender renders the client picture and a second view; the `.glb` is exported; downloads and "open in Blender" appear |
+| 1 Choose picture | drop or choose a picture | stored in `output/studio/<job>/` (git-ignored) |
+| 2 Make model | consent + **Generate**, or upload a file | a large model reads the picture into a scene description; the engine fits the camera from corner points and builds the parametric spec |
+| 3 Adjust | click, drag, recolour on the stage; compare with the picture (wipe, overlay, picture alone, model; hold Space to peek) | every change is saved 0.8 s later |
+| 4 Render | **Render**, optionally **Quick check first (about 15 sec)** | Blender renders the client picture and a second view; the `.glb` is exported; downloads and "open in Blender" appear |
 
-The card on the right always names the one next action. Engineering details are in **专业视图** ("professional view"): the fit
+The card on the right always names the one next action. Engineering details are in **Advanced view**: the fit
 overlay, corner errors, Blender's four-pane check sheet, dropped and assumed parts, design hints and every step's log.
 
 ## Automatic reading with a large model
@@ -89,7 +89,7 @@ The presets follow each provider's published API. In this repository they are te
 - After a server restart, steps that were running show as errors.
 - The live model in the browser is schematic (no reflections, simplified text and patterns). The rendered pictures show the real
   light and materials.
-- Reading quality depends on the model you use. The professional view shows how well the camera fit, so a bad reading is visible
+- Reading quality depends on the model you use. The Advanced view shows how well the camera fit, so a bad reading is visible
   before anything is built.
 
 ## The standalone editor
@@ -100,7 +100,7 @@ python web/tools/serve.py          # http://127.0.0.1:8000/ ; opening index.html
 
 ![The standalone editor with the synthetic demo booth: part list, 3D view, move and rotate tools](../docs/images/editor-demo.png)
 
-It loads the synthetic demo booth; "打开 spec / Open spec" opens your own. Edited parts are marked `inferred` with the note "Edited in
+It loads the synthetic demo booth; **Open spec** opens your own. Edited parts are marked `inferred` with the note "Edited in
 the web editor", and the camera is marked `unfitted`. Check the result with `validate_spec.py --check-source` before rebuilding.
 
 **Static hosting:** `app/index.html` with `app/js`, `app/css`, `app/vendor` and `app/demo` works on any static host (for example

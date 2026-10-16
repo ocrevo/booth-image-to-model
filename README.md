@@ -57,9 +57,9 @@ python -m pip install -r booth-image-to-model/requirements.txt
 python web/server/run.py                                  # opens http://127.0.0.1:8800/
 ```
 
-No key yet? Click **试用示例展台** ("try the demo booth") on the empty stage: a synthetic booth and its model load at once. For automatic
-reading set `OPENAI_API_KEY` (OpenAI, or `--provider deepseek` for DeepSeek, or any OpenAI-compatible service). The studio UI is in
-Chinese; the standalone editor (`python web/tools/serve.py`) has Chinese and English.
+No key yet? Click **Try the demo booth** on the empty stage: a synthetic booth and its model load at once. For automatic
+reading set `OPENAI_API_KEY` (OpenAI, or `--provider deepseek` for DeepSeek, or any OpenAI-compatible service). The studio and the standalone editor
+(`python web/tools/serve.py`) are in English.
 
 ## Requirements
 

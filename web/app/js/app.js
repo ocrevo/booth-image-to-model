@@ -3,9 +3,8 @@
 //
 // createEditor(root, options) starts it inside a page. The standalone page (index.html) starts it on <body>; the studio page
 // (studio.html, <body data-editor="embedded">) starts it itself and hands in its own hooks. One editor per page.
-//   options.standalone      the page is the editor: it sets the title and language, catches errors, takes dropped files
+//   options.standalone      the page is the editor: it sets the title, catches errors, takes dropped files
 //   options.loadDemo        load the demo booth at start (default true)
-//   options.lang            use this language for this page without saving it (the studio passes 'zh')
 //   options.hotkeyTargets   elements (or window) whose keydown drives the shortcuts (default: window)
 //   options.dropFiles       accept a dropped spec.json (default: standalone only)
 //   options.photoUrl(spec)  url of the source picture, drawn at the matched camera for before/after
@@ -14,7 +13,7 @@
 
 import { Viewport } from './viewport.js';
 import * as S from './spec.js';
-import { getLang, setLang, t, useLang } from './i18n.js';
+import { t } from './i18n.js';
 
 let root = document.body;
 let opts = {};
@@ -558,14 +557,12 @@ function renderMulti(root, ids) {
   root.append(h('h3', {}, t('material')), h('div', { class: 'fields' }, field(t('allColor'), colorInput(ids))));
 }
 
-// ---------------------------------------------------------------- chrome: language, guide, events
-function applyLang() {
+// ---------------------------------------------------------------- chrome: texts, guide, events
+function applyText() {
   if (opts.standalone) {
-    document.documentElement.lang = getLang() === 'zh' ? 'zh-CN' : 'en';
     document.title = t('title');
   }
   root.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
-  $('btnLang').textContent = t('lang');
   if (opts.standalone) $('filter').placeholder = t('filter');                // an embedding page words its own controls
   $('guideTitle').textContent = t('guideTitle');
   $('guideSub').textContent = t('subtitle');
@@ -611,7 +608,6 @@ function wire() {
   $('btnMatch').addEventListener('click', toggleMatch);
   $('btnFrame').addEventListener('click', () => { viewport.frame(state.spec, state.selection); updateToolbar(); });
   $('btnGuide').addEventListener('click', () => $('guide').showModal());
-  $('btnLang').addEventListener('click', () => { setLang(getLang() === 'zh' ? 'en' : 'zh'); applyLang(); });
   $('btnIssues').addEventListener('click', () => { if (state.issues.length) $('issueList').hidden = !$('issueList').hidden; });
   $('filter').addEventListener('input', (e) => { state.filter = e.target.value; renderOutline(); });
 
@@ -657,7 +653,6 @@ function setCompare(mode, split = 50) {
 export function createEditor(rootEl = document.body, options = {}) {
   root = rootEl;
   opts = options;
-  if (opts.lang) useLang(opts.lang);
   if (opts.standalone) {
     window.addEventListener('error', (e) => { root.dataset.error = e.message; say(e.message, 'error'); });
     window.addEventListener('unhandledrejection', (e) => { root.dataset.error = String(e.reason); say(String(e.reason), 'error'); });
@@ -669,7 +664,7 @@ export function createEditor(rootEl = document.body, options = {}) {
     onMatchFrame: (rect) => opts.onMatchFrame?.(rect),
   });
   wire();
-  applyLang();
+  applyText();
   if (opts.loadDemo !== false) loadDemo();
   return {
     state, viewport, S, select, edit, undo, redo, duplicateSelection, deleteSelection, toggleMatch,

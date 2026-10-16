@@ -13,7 +13,7 @@ def clean_key(raw):
     if not key:
         return None
     if not KEY_CHARS.fullmatch(key):
-        raise ValueError('key 里有空格、换行或非 ASCII 字符，不能作为 HTTP 头发送；请检查是否复制完整（换行要去掉）')
+        raise ValueError('The key contains spaces, line breaks or non-ASCII characters and cannot be sent as an HTTP header; check that it was copied completely (remove line breaks)')
     return key
 
 

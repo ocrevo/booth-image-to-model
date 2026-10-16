@@ -11,7 +11,7 @@ so that they can be swapped for other pictures later.
 |---|---|---|
 | `docs/images/studio-demo.png` | `README.md`, `README.zh-CN.md` (top), `web/README.md`, the GitHub social preview (`docs/github-settings.md`) | the studio with the demo booth: picture on the left, model on the right |
 | `docs/images/editor-demo.png` | `web/README.md` (standalone editor) | the standalone editor with the demo booth |
-| `web/app/demo/demo_source.png` | **试用示例展台** ("try the demo booth") in the studio | a Blender render of the demo booth from the demo camera |
+| `web/app/demo/demo_source.png` | **Try the demo booth** in the studio | a Blender render of the demo booth from the demo camera |
 | `web/app/demo/demo-booth.spec.json` | the demo in the studio and the standalone editor | the synthetic demo model; its `source` (size, sha256) belongs to `demo_source.png` |
 
 If `demo_source.png` is missing, the studio shows the demo model on a plain stand-in picture and the tests make their own stand-in, so

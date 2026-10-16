@@ -72,7 +72,7 @@ def _settle(data):
     changed = False
     for entry in data['steps'].values():
         if entry['state'] == 'running':
-            entry.update(state='error', message='这一步被中断了（服务重启或线程出错），请重新运行', updated=_now())
+            entry.update(state='error', message='This step was interrupted (the server restarted or a thread failed). Please run it again.', updated=_now())
             entry.pop('prior', None)
             changed = True
         elif entry['state'] == 'queued':
@@ -136,7 +136,7 @@ class Jobs:
         with self._lock:
             self.path(job_id)
             if job_id in self._running:
-                raise Busy(f'这个任务的“{self._running[job_id]}”步骤还在运行，等它结束再操作')
+                raise Busy(f'The "{self._running[job_id]}" step of this job is still running. Wait for it to finish.')
             yield
 
     def list(self):
@@ -186,7 +186,7 @@ class Jobs:
     def create(self, original_name, data):
         from PIL import Image
         if not data or len(data) > MAX_IMAGE_BYTES:
-            raise BadRequest(f'图片大小必须在 1 字节到 {MAX_IMAGE_BYTES // (1024 * 1024)} MB 之间')
+            raise BadRequest(f'The picture must be between 1 byte and {MAX_IMAGE_BYTES // (1024 * 1024)} MB')
         try:
             with Image.open(io.BytesIO(data)) as im:
                 fmt, size = im.format, im.size
@@ -194,18 +194,18 @@ class Jobs:
             with Image.open(io.BytesIO(data)) as im:
                 orientation = im.getexif().get(EXIF_ORIENTATION, 1)
         except Exception as ex:
-            raise BadRequest(f'这不是流程能读的图片：{ex}') from ex
+            raise BadRequest(f'This is not a picture the studio can read: {ex}') from ex
         ext = {'PNG': '.png', 'JPEG': '.jpg', 'MPO': '.jpg'}.get(fmt)         # MPO is how Pillow names many phone JPEGs
         if not ext:
-            raise BadRequest(f'请用 PNG 或 JPEG 图片（这张是 {fmt}）')
+            raise BadRequest(f'Please use a PNG or JPEG picture (this one is {fmt})')
         if min(size) < 64:
-            raise BadRequest('图片小于 64 像素')
+            raise BadRequest('The picture is smaller than 64 pixels')
         if size[0] * size[1] > MAX_IMAGE_PIXELS:
-            raise BadRequest(f'图片有 {size[0] * size[1] / 1e6:.1f} MP，超过上限 {MAX_IMAGE_PIXELS // 1_000_000} MP（Blender 按原图尺寸渲染，更大会耗尽内存）；'
-                             f'请先缩小到 {MAX_IMAGE_PIXELS // 1_000_000} MP 以内再上传')
+            raise BadRequest(f'The picture is {size[0] * size[1] / 1e6:.1f} MP, over the {MAX_IMAGE_PIXELS // 1_000_000} MP limit (Blender renders at the picture size, and larger pictures run out of memory). '
+                             f'Please shrink it to {MAX_IMAGE_PIXELS // 1_000_000} MP or less and upload it again')
         if orientation not in (1, 0, None):
-            raise BadRequest('图片带有 EXIF 旋转信息（常见于手机照片）：浏览器显示的方向和像素的实际方向不同，读图和编译会用错方向；'
-                             '请用看图软件旋转后另存（去掉旋转标记）再上传')
+            raise BadRequest('The picture carries EXIF rotation information (common in phone photos): the orientation the browser shows differs from the orientation of the pixels, so reading and compiling would use the wrong direction. '
+                             'Please rotate it in an image viewer, save it again (this removes the rotation flag) and upload it again')
         job_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2)}"
         d = self.root / job_id
         d.mkdir(parents=True)
@@ -225,7 +225,7 @@ class Jobs:
         with self._lock:
             self.path(job_id)
             if job_id in self._running:
-                raise Busy(f'这个任务的“{self._running[job_id]}”步骤还在运行，等它结束再操作')
+                raise Busy(f'The "{self._running[job_id]}" step of this job is still running. Wait for it to finish.')
             self._running[job_id] = plan[0][0]
         try:
             def queue(data):
@@ -234,7 +234,7 @@ class Jobs:
                     if index == 0:
                         data['steps'][step] = {'state': 'running', 'message': '', 'updated': _now(), 'started': time.time()}
                     else:
-                        data['steps'][step] = {**old, 'state': 'queued', 'message': '等待前面的步骤', 'updated': _now(),
+                        data['steps'][step] = {**old, 'state': 'queued', 'message': 'Waiting for the earlier steps', 'updated': _now(),
                                                'prior': {'state': old['state'], 'message': old.get('message', '')}}
             self._mutate(job_id, queue)
             threading.Thread(target=self._run_plan, args=(job_id, plan), name=f'job-{job_id}', daemon=True).start()
@@ -250,12 +250,12 @@ class Jobs:
                 try:
                     with self._lock:
                         self._running[job_id] = step
-                    self.set_step(job_id, step, 'running', message='运行中')
+                    self.set_step(job_id, step, 'running', message='Running')
                     if uses_blender:
-                        self.set_step(job_id, step, 'running', message='等待 Blender（一次只运行一个）')
+                        self.set_step(job_id, step, 'running', message='Waiting for Blender (only one runs at a time)')
                         with self.blender_lock:
                             started = time.time()                          # the time Blender is used, not the time spent queueing for it
-                            self.set_step(job_id, step, 'running', message='运行中')
+                            self.set_step(job_id, step, 'running', message='Running')
                             result = fn()
                     else:
                         result = fn()

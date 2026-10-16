@@ -110,10 +110,10 @@ class JobStates(unittest.TestCase):
     def test_after_a_restart_nothing_is_left_running_or_queued(self):
         path = self.jobs.path(self.job) / 'status.json'
         data = json.loads(path.read_text(encoding='utf-8'))
-        data['steps']['preview'] = {'state': 'running', 'message': '运行中', 'updated': 'x'}
-        data['steps']['build'] = {'state': 'queued', 'message': '等待前面的步骤', 'updated': 'x', 'detail': {'files': {}},
+        data['steps']['preview'] = {'state': 'running', 'message': 'Running', 'updated': 'x'}
+        data['steps']['build'] = {'state': 'queued', 'message': 'Waiting for the earlier steps', 'updated': 'x', 'detail': {'files': {}},
                                   'prior': {'state': 'done', 'message': 'fine'}}
-        data['steps']['glb'] = {'state': 'queued', 'message': '等待前面的步骤', 'updated': 'x'}
+        data['steps']['glb'] = {'state': 'queued', 'message': 'Waiting for the earlier steps', 'updated': 'x'}
         path.write_text(json.dumps(data), encoding='utf-8')
         st = self.jobs.status(self.job)['steps']                                                   # no thread runs them: reported settled
         self.assertEqual((st['preview']['state'], st['build']['state'], st['build']['message'], st['glb']['state']), ('error', 'done', 'fine', 'idle'))
@@ -324,7 +324,7 @@ class ServerHardening(StudioCase):
         self.assertEqual(steps.auto_names(self.studio.jobs, other, False), ['preview', 'build', 'glb'])   # an uploaded spec has nothing to compile
         status, body = self.api.call('POST', f'/api/jobs/{other}/compile', {})                         # and clicking compile there is refused, not "failed"
         self.assertEqual(status, 422)
-        self.assertIn('直接提供', body['error'])
+        self.assertIn('provided directly', body['error'])
         st = self.api.call('GET', f'/api/jobs/{other}')[1]
         self.assertEqual((st['steps']['scene']['state'], st['steps']['compile']['state']), ('skipped', 'skipped'))
         self.studio.jobs.set_step(other, 'compile', 'error', message='left over from an earlier click')
@@ -341,7 +341,7 @@ class ServerHardening(StudioCase):
                                        ('POST', f'/api/jobs/{job}/compile', {})):
                 status, answer = self.api.call(method, path, body)
                 self.assertEqual(status, 409, (path, answer))
-                self.assertIn('还在运行', answer['error'])
+                self.assertIn('still running', answer['error'])
             self.assertEqual((self.studio.jobs.path(job) / 'spec.json').read_bytes(), before)
         finally:
             gate.set()
@@ -370,9 +370,9 @@ class ServerHardening(StudioCase):
         with mock.patch.object(engine, 'build', side_effect=fake_build):
             capped = steps.build_step(self.studio.jobs, job, hd=True)
             plain = steps.build_step(self.studio.jobs, job, hd=False)
-        self.assertIn('高清图没有生成', capped['message'])
+        self.assertIn('HD picture was not made', capped['message'])
         self.assertEqual((capped['detail']['hd_requested'], capped['detail']['hd']['capped']), (True, True))
-        self.assertNotIn('高清图', plain['message'])
+        self.assertNotIn('HD picture', plain['message'])
 
 
 class EngineHygiene(unittest.TestCase):
@@ -485,7 +485,7 @@ class ReaderHardening(unittest.TestCase):
         mock_, config = self.mock(['redirect'])
         with self.assertRaises(reader.ReaderError) as ctx:
             self.read(config)
-        self.assertIn('重定向', str(ctx.exception))
+        self.assertIn('redirected', str(ctx.exception))
         self.assertEqual([r['path'] for r in mock_.requests], ['/v1/responses'])                  # /v1/elsewhere was never asked
 
     def test_a_timeout_is_reported_once_not_retried_three_times(self):
@@ -493,7 +493,7 @@ class ReaderHardening(unittest.TestCase):
         started = time.time()
         with self.assertRaises(reader.ReaderError) as ctx:
             self.read(config, timeout=1)
-        self.assertIn('没有再重试', str(ctx.exception))
+        self.assertIn('not retrying', str(ctx.exception))
         self.assertEqual(len(mock_.requests), 1)
         self.assertLess(time.time() - started, 2.9)
 

@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>展台工作台</title>
+  <title>Booth studio</title>
   <meta name="description" content="From a booth picture to an editable model and a clean render, in one window. Needs the local studio server.">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="css/editor.css">
@@ -23,7 +23,7 @@
       <strong id="appName"></strong>
       <span class="file" id="photoName"></span>
     </div>
-    <nav id="steps" class="st-steps" aria-label="进度"></nav>
+    <nav id="steps" class="st-steps" aria-label="Progress"></nav>
     <span class="grow"></span>
     <span id="saveChip" class="st-chip" role="status" hidden></span>
     <span id="envChip" class="st-chip warn" role="alert" hidden></span>
@@ -60,9 +60,9 @@
       </div>
 
       <div class="st-compare" id="compareBar" hidden>
-        <div class="st-seg" id="viewSeg" role="group" aria-label="对照方式"></div>
-        <input type="range" id="splitSlider" min="0" max="100" value="50" aria-label="对照分界线">
-        <div class="st-seg" id="afterSeg" role="group" aria-label="模型来源"></div>
+        <div class="st-seg" id="viewSeg" role="group" aria-label="Compare mode"></div>
+        <input type="range" id="splitSlider" min="0" max="100" value="50" aria-label="Compare divider">
+        <div class="st-seg" id="afterSeg" role="group" aria-label="Model shown"></div>
         <span class="st-note" id="compareNote"></span>
       </div>
     </section>
@@ -79,11 +79,11 @@
   </footer>
   <section class="issue-list" id="issueList" hidden></section>
 
-  <aside id="pro" class="st-pro" hidden aria-label="专业视图">
+  <aside id="pro" class="st-pro" hidden aria-label="Advanced view">
     <header>
       <div class="st-seg" id="proTabs" role="tablist"></div>
       <span class="grow"></span>
-      <button id="btnProClose" aria-label="关闭">×</button>
+      <button id="btnProClose" aria-label="Close">×</button>
     </header>
     <div id="proBody" class="st-pro-body"></div>
   </aside>

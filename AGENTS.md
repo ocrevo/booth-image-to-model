@@ -63,9 +63,10 @@ reviewed masks.
 
 - `web/app/` is the deployable static site and nothing else. `web/server/`, `web/tests/` and `web/tools/` stay outside it so they are
   never served. The standalone editor (`index.html`) makes no network calls except loading its synthetic demo from the same origin.
-- The studio (`python web/server/run.py`, 127.0.0.1 only) runs the flow in one window (`studio.html`: ① 选图 ② 生成模型 ③ 调整 ④ 出图),
-  hosts the editor (`createEditor`) in its stage and autosaves. The main path uses plain words only (`studio_copy.js` `main`, scanned
-  by a test for engineering terms); terms belong in the 专业视图 drawer. Jobs are written to git-ignored `output/studio/`.
+- The studio (`python web/server/run.py`, 127.0.0.1 only) runs the flow in one window (`studio.html`: 1 Choose picture, 2 Make model, 3 Adjust, 4 Render),
+  hosts the editor (`createEditor`) in its stage and autosaves. The main path uses plain English words only (`studio_copy.js` `main`, scanned
+  by a test for engineering terms); terms belong in the Advanced view drawer. The whole web UI is English only (no language switch):
+  new labels and server messages shown in it are written in English. Jobs are written to git-ignored `output/studio/`.
 - Large-model reading (`web/server/reader_openai.py`, standard-library HTTP, any OpenAI-compatible service): the key comes from
   `OPENAI_API_KEY` or the page and is kept in memory only (never in a file, a job or a log); a picture is sent only after the per-job
   consent box is ticked; tests use the stand-in `web/tests/mock_openai.py`, never a real key. Do not add a vendor SDK.

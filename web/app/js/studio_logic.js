@@ -24,7 +24,7 @@ export function formatElapsed(seconds) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/** "几秒", "约 40 秒", "约 1–2 分钟" for an expected duration in seconds. */
+/** "a few seconds", "about 40 sec", "about 1–2 min" for an expected duration in seconds. */
 export function expectedText(seconds) {
   if (seconds < 10) return M.secondsFew;
   if (seconds < 60) return fill(M.secondsAbout, { n: Math.round(seconds / 5) * 5 });
@@ -34,7 +34,7 @@ export function expectedText(seconds) {
 }
 
 /** The compile result in plain words, most important line first. Each line: { tone, text, look } where `look` names the
- *  professional-view page that explains it. */
+ *  Advanced view page that explains it. */
 export function plainFit(detail) {
   if (!detail || !detail.fit) return [];
   const fit = detail.fit;
@@ -73,7 +73,7 @@ export function describeError(step, entry) {
     else if (d.incomplete) reason = M.errCut;
     else if (d.refusal) reason = M.errRefused;
     else if (Array.isArray(d.errors) && d.errors.length) reason = M.errUnusable;
-    else if (raw.startsWith('连不上')) reason = M.errNet;
+    else if (raw.startsWith('Cannot connect to')) reason = M.errNet;
   }
   const out = { step, title: ERROR_TITLE[step] || M.errRenderTitle, reason, raw: raw === reason ? '' : raw, primary: null, secondary: [] };
   if (step === 'scene') {
@@ -145,7 +145,7 @@ export function deriveView(job, ctx = {}) {
     const s = working || queued[0];
     const expected = estimate(s.name, ctx.durations, { hd: Boolean(ctx.hd) });
     const elapsed = s.entry.started && ctx.now ? ctx.now - s.entry.started : 0;
-    const waitingBlender = Boolean(working && String(working.entry.message || '').startsWith('等待 Blender'));
+    const waitingBlender = Boolean(working && String(working.entry.message || '').startsWith('Waiting for Blender'));
     card = {
       kind: 'working', step: s.name, text: waitingBlender ? M.waitingBlender : WORKING_TEXT[s.name] || M.rendering,
       elapsed: working ? elapsed : 0, expected, queued: !working || waitingBlender,

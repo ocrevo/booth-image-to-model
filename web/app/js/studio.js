@@ -116,7 +116,7 @@ async function loadJob(id, { quiet = false } = {}) {
     return;
   }
   if (ui.offline) { ui.offline = false; await refreshHealth(); renderChips(); }
-  if (!ok) { await go(null, { force: true }); $('message').textContent = `找不到任务 ${id}`; return; }
+  if (!ok) { await go(null, { force: true }); $('message').textContent = fill(M.jobNotFound, { id }); return; }
   const previous = ui.job;
   ui.job = data;
   onStatus(previous, data);
@@ -183,7 +183,7 @@ const actions = {
 
 async function uploadImage(file) {
   ui.notes.image = null;
-  if (file.size > MAX_IMAGE_MB * 1024 * 1024) { ui.notes.image = `图片超过 ${MAX_IMAGE_MB} MB，请先缩小`; render(); return; }
+  if (file.size > MAX_IMAGE_MB * 1024 * 1024) { ui.notes.image = fill(M.imageTooBig, { mb: MAX_IMAGE_MB }); render(); return; }
   const res = await call('POST', `/api/jobs?name=${encodeURIComponent(file.name)}`, { raw: await file.arrayBuffer(), type: file.type || 'application/octet-stream' });
   if (!res.ok) { ui.notes.image = res.data?.error || `HTTP ${res.status}`; render(); return; }
   go(res.data.id);
@@ -431,7 +431,7 @@ function initStatic() {
   });
   for (const type of ['dragover', 'drop']) window.addEventListener(type, (e) => e.preventDefault());       // a file dropped beside the stage must not navigate away
 
-  // Hold the space bar to look at the photo alone. Anywhere except a text field, a button or the professional view: after a click on the
+  // Hold the space bar to look at the photo alone. Anywhere except a text field, a button or the advanced view: after a click on the
   // comparison controls the stage is given the focus back, so the bar works right after them too.
   document.addEventListener('keydown', (e) => {
     if (e.code !== 'Space' || ui.view?.phase !== 'model') return;
@@ -617,7 +617,7 @@ function modelCard(view) {
   if (view.downloads.length) {
     out.push(h('h2', {}, M.downloads), h('div', { class: 'st-downloads', id: 'downloads' }, view.downloads.map((d) => h('a', {
       href: fileUrl(d.rel, ui.job.steps[d.key === 'glb' ? 'glb' : 'build'].updated), download: '', class: d.primary ? 'primary' : '', 'data-key': d.key,
-    }, d.label, d.stale && h('span', { class: 'stale' }, '已过期')))));
+    }, d.label, d.stale && h('span', { class: 'stale' }, M.staleTag)))));
     if (view.blender && view.downloads.some((d) => d.key === 'blend')) out.push(h('button', { id: 'btnOpenBlender', onClick: openBlender }, M.openBlender));
     if (ui.notes.opened) out.push(h('p', { class: 'muted', id: 'openedNote' }, ui.notes.opened));
   }
@@ -640,7 +640,7 @@ function startTicker(view) {
   ui.ticker = setInterval(tick, 1000);
 }
 
-// ---------------------------------------------------------------- professional view
+// ---------------------------------------------------------------- advanced view
 function openPro(tab = 0) {
   ui.pro = { open: true, tab };
   $('pro').hidden = false;
@@ -661,7 +661,7 @@ function renderPro() {
   if (!job) { body.replaceChildren(h('p', { class: 'muted' }, A.noDetail)); return; }
   const compile = job.steps.compile.detail;
   const preview = job.steps.preview.detail;
-  const list = (title, items, render) => (items && items.length ? h('div', {}, h('h3', {}, `${title}（${items.length}）`), h('ul', {}, items.map((x) => h('li', {}, render(x))))) : null);
+  const list = (title, items, render) => (items && items.length ? h('div', {}, h('h3', {}, `${title} (${items.length})`), h('ul', {}, items.map((x) => h('li', {}, render(x))))) : null);
   if (ui.pro.tab === 0) {
     const fit = compile?.fit;
     body.replaceChildren(...[
@@ -674,11 +674,11 @@ function renderPro() {
     ].filter(Boolean));
   } else {
     body.replaceChildren(...[
-      list(A.droppedTitle, compile?.dropped, (x) => `${x.id}：${x.reason}`),
+      list(A.droppedTitle, compile?.dropped, (x) => `${x.id}: ${x.reason}`),
       list(A.assumedTitle, compile?.assumed, (x) => `${x.id}.${x.what} = ${typeof x.value === 'object' ? JSON.stringify(x.value) : x.value}`),
-      list(A.adjustTitle, compile?.adjustments, (x) => `${x.id}：${x.what}`),
+      list(A.adjustTitle, compile?.adjustments, (x) => `${x.id}: ${x.what}`),
       list(A.warnTitle, compile?.warnings, (x) => String(x)),
-      list(A.designTitle, preview?.design_findings, (x) => `${x.check}：${x.message}`),
+      list(A.designTitle, preview?.design_findings, (x) => `${x.check}: ${x.message}`),
       h('div', {}, h('h3', {}, A.logTitle), h('ul', {}, STEPS.map((s) => {
         const e = job.steps[s];
         return h('li', {}, `${s}: ${e.state}${e.message ? ` · ${e.message}` : ''}${e.seconds != null ? ` · ${e.seconds} s` : ''}`,
@@ -696,7 +696,7 @@ function renderPro() {
 async function boot() {
   initStatic();
   ui.editor = createEditor(document.body, {
-    loadDemo: false, dropFiles: false, lang: 'zh', hotkeyTargets: [$('stage'), $('outlinePanel')],
+    loadDemo: false, dropFiles: false, hotkeyTargets: [$('stage'), $('outlinePanel')],
     photoUrl: () => (ui.job ? fileUrl(ui.job.image.name) : null), onCommit: scheduleSave, onMatchFrame: onFrame,
   });
   await refreshHealth();

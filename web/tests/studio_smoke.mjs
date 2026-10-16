@@ -2,7 +2,7 @@
 // real page in headless Chrome/Edge through the DevTools protocol (real key presses, file choosers, clicks) in ONE window:
 //   empty stage -> picture -> a refused key -> the upload alternative -> the model over the photo -> before/after (wipe, overlay, photo,
 //   hold space) -> edit on the stage and autosave -> model file export -> quick check -> render -> downloads -> stale after an edit ->
-//   professional view; then the whole way again with a good key, "generate and go straight to the picture", a ready-made model file,
+//   advanced view; then the whole way again with a good key, "generate and go straight to the picture", a ready-made model file,
 //   a vanished server, and the recent jobs. The Blender steps run when the server finds Blender (skip with --skip-blender).
 //
 //   node tests/studio_smoke.mjs [--shots <dir>] [--chrome <path>] [--skip-blender] [--image <png> --scene <json>]     (npm run smoke:studio)
@@ -16,7 +16,7 @@ import net from 'node:net';
 import assert from 'node:assert/strict';
 import { findChrome } from './browser.mjs';
 import { PYTHON } from './python.mjs';
-import { BANNED } from '../app/js/studio_copy.js';
+import { findBanned } from '../app/js/studio_copy.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const webDir = resolve(here, '..');
@@ -220,7 +220,7 @@ async function main() {
     await waitFor(() => ev('document.body.dataset.ready'), 'the studio', 60000);
     assert.equal(await phase(), 'empty');
     assert.equal(await visible('#dropZone'), true);
-    assert.deepEqual(await ev("[...document.querySelectorAll('.st-step')].map((s) => s.textContent.replace(/^[^\\u4e00-\\u9fa5]*/, ''))"), ['选图', '生成模型', '调整', '出图']);
+    assert.deepEqual(await ev("[...document.querySelectorAll('.st-step')].map((s) => s.textContent.replace(/^[^A-Za-z]*/, ''))"), ['Choose picture', 'Make model', 'Adjust', 'Render']);
     assert.equal(await stepState(1), 'current');
     assert.equal(await visible('#envChip'), false);
     assert.equal(await visible('#compareBar'), false);
@@ -232,7 +232,7 @@ async function main() {
     await upload('#imageInput', imageFile);
     await waitPhase('photo');
     assert.equal(await visible('#photoPlain'), true);
-    assert.match(await text('#photoName'), /\d+ × \d+ 像素/);
+    assert.match(await text('#photoName'), /\d+ × \d+ pixels/);
     assert.equal(await stepState(2), 'current');
     assert.equal(await visible('#keyInput'), true);                                  // no key yet: the card asks for it
     assert.equal(await ev("document.getElementById('btnGenerate').disabled"), true);
@@ -250,24 +250,24 @@ async function main() {
     await waitStep(2, 'error');
     assert.equal(await view(), 'error');
     assert.equal(await visible('#btnRetry'), true);
-    assert.match(await text('.st-error'), /大模型没有读出这张图/);
+    assert.match(await text('.st-error'), /The large model could not read this picture/);
     assert.equal(await visible('.st-error #chkConsent'), true);                         // a new reading needs the consent again: the box is on the error card
     await click('chkConsent');
     assert.equal(await ev("document.getElementById('btnRetry').disabled"), true);
     await click('chkConsent');
     assert.equal(await ev("document.getElementById('btnRetry').disabled"), false);
-    assert.match(await text('#errorReason'), /不接受这个 key/);                       // plain words; the service's own text is kept apart
+    assert.match(await text('#errorReason'), /does not accept this key/);                       // plain words; the service's own text is kept apart
     assert.doesNotMatch(await text('#errorReason'), /HTTP|sk-/);
     assert.match(await ev("document.querySelector('.st-error details p')?.textContent || ''"), /HTTP 401/);
     await shot('03_read_failed.png');
   });
 
   await step('the upload alternative gets from the same picture to a model over the photo', async () => {
-    await ev("[...document.querySelectorAll('#stepCard button.link')].find((b) => b.textContent.includes('改用上传文件'))?.click()");
+    await ev("[...document.querySelectorAll('#stepCard button.link')].find((b) => /upload a file instead/i.test(b.textContent))?.click()");
     await waitFor(() => ev("document.getElementById('moreWays')?.open"), 'the folded area to open');
     assert.equal(await visible('#keyInput'), true);                                   // and the refused key can be replaced there
     await upload('#sceneInput', badSceneFile);
-    await waitFor(() => text('#stepCard .st-warn').then((t) => /SCOPE|没有载入/.test(t)), 'the refusal that names the file');
+    await waitFor(() => text('#stepCard .st-warn').then((t) => /SCOPE|Did not load/.test(t)), 'the refusal that names the file');
     assert.equal(await phase(), 'photo');
     await ev("document.getElementById('moreWays').open = true");
     await upload('#sceneInput', sceneFile);
@@ -288,10 +288,9 @@ async function main() {
     assert.equal(await visible('#compareBar'), true);
     assert.equal(await visible('#stageTools'), true);
     assert.ok((await ev("document.querySelectorAll('#outlineList .row').length")) > 10);
-    assert.match(await text('#stepCard'), custom ? /模型/ : /模型已生成，共 \d+ 个部件/);
-    const words = await ev(`(() => { const t = document.getElementById('stepCard').innerText + document.getElementById('steps').innerText + document.getElementById('compareBar').innerText + document.getElementById('stageTools').innerText;
-      return ${JSON.stringify(BANNED)}.filter((w) => t.includes(w)); })()`);
-    assert.deepEqual(words, []);
+    assert.match(await text('#stepCard'), custom ? /model/i : /Model ready, \d+ parts/);
+    const mainText = await ev("['stepCard', 'steps', 'compareBar', 'stageTools'].map((id) => document.getElementById(id).innerText).join(' ')");
+    assert.deepEqual(findBanned(mainText), []);
     assert.equal(await ev("document.querySelectorAll('a[target=_blank]').length"), 0);
     await shot('04_model_wipe.png');
   });
@@ -347,7 +346,7 @@ async function main() {
     const edited = x0 + 0.05;
     assert.ok(Math.abs(await ev(`${E}.state.spec.components[3].location[0]`) - edited) < 1e-9);
     await waitFor(() => ev("document.getElementById('saveChip').dataset.state === 'saved'"), 'the saved chip');
-    assert.match(await text('#saveChip'), /已保存/);
+    assert.match(await text('#saveChip'), /Saved/);
     const saved = await api(`/api/jobs/${jobA}/spec`);
     assert.ok(Math.abs(saved.components[3].location[0] - edited) < 1e-9);
     assert.equal((await api(`/api/jobs/${jobA}`)).spec.origin, 'edited');
@@ -367,7 +366,7 @@ async function main() {
       await waitFor(() => ev("document.getElementById('after-check')?.getAttribute('aria-pressed') === 'true'"), 'the check picture to be chosen', 600000);
       assert.equal(await visible('.source-render'), true);
       assert.equal(await ev(`${E}.viewport.renderer.domElement.style.visibility`), 'hidden');
-      assert.match(await text('#compareNote'), /回到「即时模型」/);
+      assert.match(await text('#compareNote'), /"Live model"/);
       const { photo, frame } = await rects();
       for (let i = 0; i < 4; i++) assert.ok(Math.abs(photo[i] - frame[i]) <= 1);
       await shot('07_quick_check.png');
@@ -391,7 +390,7 @@ async function main() {
       assert.equal(got.find((g) => g.key === 'glb').head, 'glTF');
       assert.equal(await visible('#btnOpenBlender'), true);
       assert.equal(await visible('.source-render'), true);
-      assert.match(await text('#btnRender'), /重新出图/);
+      assert.match(await text('#btnRender'), /Render again/);
       await shot('08_rendered.png');
     });
 
@@ -409,13 +408,13 @@ async function main() {
     });
   }
 
-  await step('the professional view opens in the same window with the alignment and the records', async () => {
+  await step('the advanced view opens in the same window with the alignment and the records', async () => {
     await click('btnPro');
     assert.equal(await visible('#pro'), true);
-    await waitFor(() => text('#proBody').then((t) => /拟合|px/.test(t)), 'the alignment page');
+    await waitFor(() => text('#proBody').then((t) => /Fit|px/.test(t)), 'the alignment page');
     assert.ok((await ev("document.querySelectorAll('#proBody img').length")) >= 1);
     await ev("document.querySelectorAll('#proTabs button')[1].click()");
-    assert.match(await text('#proBody'), /各步记录/);
+    assert.match(await text('#proBody'), /Step log/);
     assert.equal(await ev('location.pathname'), '/');
     await shot('10_pro.png');
     await click('btnProClose');
@@ -456,7 +455,7 @@ async function main() {
     await newJob();
     await ev("document.getElementById('moreWays').open = true");
     await upload('#specInput', wrong);
-    await waitFor(() => text('#stepCard .st-warn').then((t) => /没有载入 wrong\.spec\.json.*sha256/s.test(t)), 'the refusal');
+    await waitFor(() => text('#stepCard .st-warn').then((t) => /Did not load wrong\.spec\.json.*sha256/s.test(t)), 'the refusal');
     assert.equal(await phase(), 'photo');
     await ev("document.getElementById('moreWays').open = true");
     await upload('#specInput', good);
@@ -523,7 +522,7 @@ async function main() {
     await ev("window.__real = window.fetch; window.fetch = () => Promise.reject(new TypeError('Failed to fetch'))");
     await ev(`window.studio.loadJob('${id}', { quiet: true })`);
     await waitFor(() => visible('#envChip'), 'the offline chip');
-    assert.match(await text('#envChip'), /没有连上本机服务/);
+    assert.match(await text('#envChip'), /Cannot reach the local server/);
     await ev('window.fetch = window.__real');
     await waitFor(async () => !(await visible('#envChip')), 'the page to reconnect', 15000);
   });

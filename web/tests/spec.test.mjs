@@ -172,7 +172,7 @@ test('an edited spec still validates in Python and exports to GLB', () => {
   everything((s) => { S.remove(s, S.groupMembers(s, 'spot')); });
   const dir = mkdtempSync(join(tmpdir(), 'booth-web-'));
   try {
-    // The demo picture is a replaceable placeholder (docs/sample-images.md); if it is missing, a plain stand-in of the same size, as the studio does.
+    // The demo picture can be swapped (docs/sample-images.md); if it is missing, a plain stand-in of the same size, as the studio does.
     const picture = new URL('demo_source.png', DEMO);
     const local = join(dir, 'demo_source.png');
     if (existsSync(picture)) copyFileSync(picture, local);

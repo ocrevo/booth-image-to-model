@@ -189,7 +189,7 @@ async function uploadImage(file) {
   go(res.data.id);
 }
 
-/** The demo picture: demo/demo_source.png (a placeholder until a free-to-use sample replaces it, docs/sample-images.md), or a plain
+/** The demo picture: demo/demo_source.png (a synthetic render, docs/sample-images.md), or a plain
  *  stand-in at the demo camera's frame size when the file is missing. */
 async function demoPicture(source) {
   if (ui.health?.demo_picture) {                       // the server says whether it exists, so a missing file is never requested

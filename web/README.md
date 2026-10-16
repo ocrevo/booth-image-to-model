@@ -24,8 +24,7 @@ python web/server/run.py                             # opens http://127.0.0.1:88
 `run.py` names any missing package and stops. It prints where it found Blender (or that it did not), and whether a key is set.
 
 **Try it without a key:** on the empty stage click **试用示例展台** ("try the demo booth"). It loads a synthetic booth picture and its
-model, so you can adjust, compare and render at once. The demo and screenshot pictures are synthetic placeholders until free-to-use
-sample pictures replace them ([docs/sample-images.md](../docs/sample-images.md)).
+model, so you can adjust, compare and render at once. The demo and screenshot pictures are synthetic ([docs/sample-images.md](../docs/sample-images.md)).
 
 **With your own picture:** drop it on the stage (PNG or JPEG, ≤ 25 MB, ≤ 5 MP, no EXIF rotation). Then either:
 - tick the consent box and click **生成模型** (needs a key, see below), or

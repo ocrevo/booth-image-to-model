@@ -268,7 +268,7 @@ print(json.dumps({'meshes': len(s.geometry), 'groups': sorted(n for n in nodes i
     const json = await ev(`JSON.stringify(${E}.state.spec, null, 2)`);
     const dir = join(work, 'spec');
     mkdirSync(dir);
-    const picture = join(webDir, 'app', 'demo', 'demo_source.png');      // a placeholder that may be replaced or missing; docs/sample-images.md
+    const picture = join(webDir, 'app', 'demo', 'demo_source.png');      // may be swapped or missing; docs/sample-images.md
     if (existsSync(picture)) copyFileSync(picture, join(dir, 'demo_source.png'));
     writeFileSync(join(dir, 'edited.spec.json'), json);
     const check = existsSync(picture) ? ['--check-source'] : [];

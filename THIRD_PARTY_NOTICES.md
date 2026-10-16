@@ -24,5 +24,8 @@ Blender is run as a separate program (`blender --background --python <script>`);
 Blender's code. The scripts that run inside Blender use its Python API (`bpy`) and are distributed under the Apache License 2.0
 together with the rest of this repository.
 
+The pictures in `docs/images/` and `web/app/demo/demo_source.png` are synthetic: screenshots and a Blender render of the invented demo
+booth made by this project, covered by the same Apache License 2.0.
+
 The optional large-model reading step sends a picture to an OpenAI-compatible service that you choose and configure; that
 service's own terms apply to what you send.

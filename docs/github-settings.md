@@ -13,8 +13,7 @@ The first sentence is the project's canonical definition; `tools/check_docs.py` 
 
 **Website:** leave empty until a public page exists.
 
-**Social preview:** `docs/images/studio-demo.png` (synthetic placeholder), cropped to 1280 × 640; replace it together with the sample
-pictures (`docs/sample-images.md`).
+**Social preview:** `docs/images/studio-demo.png` (synthetic), cropped to 1280 × 640.
 
 **Security:** enable *Private vulnerability reporting* (Settings → Code security), which `SECURITY.md` points to.
 

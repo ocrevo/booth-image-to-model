@@ -12,8 +12,7 @@ and clean client renders — as an AI-agent skill or a local web studio.**
 ![The web studio with its demo booth: on the left a synthetic picture rendered from the demo model, on the right the same editable 3D model at that camera](docs/images/studio-demo.png)
 
 *The studio's demo booth: the synthetic picture (left of the line) is rendered from the demo model at its own camera, so the editable model
-(right) lines up exactly. With a real picture the camera and sizes are an estimated fit. (Placeholder pictures; see
-[docs/sample-images.md](docs/sample-images.md).)*
+(right) lines up exactly. With a real picture the camera and sizes are an estimated fit. (Synthetic pictures made by this project.)*
 
 ## What it does
 

@@ -2,8 +2,8 @@
 
 Everything here is invented (a generic 6 x 5 m open-front stand made from the skill's macros); no client image, brand, or
 measured dimension is involved. The demo picture is a Blender render of this same synthetic booth from the spec's camera, so the
-studio's before/after lines up exactly; it is marked "synthetic demo". It is a placeholder until a free-to-use sample picture
-replaces it (docs/sample-images.md); if it is missing, the studio shows the demo model on a plain stand-in. Re-run after changing the
+studio's before/after lines up exactly; it is marked "synthetic demo". Its use and how to swap it are in
+docs/sample-images.md; if it is missing, the studio shows the demo model on a plain stand-in. Re-run after changing the
 macros:
 
     python web/tools/make_demo.py                  # spec only; keeps an existing demo_source.png (or writes a plain stand-in)

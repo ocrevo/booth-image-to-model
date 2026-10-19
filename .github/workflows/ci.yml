@@ -32,6 +32,8 @@ jobs:
         run: python tools/check_docs.py
       - name: Skill tests (Blender tests skip)
         run: python booth-image-to-model/tests/run_tests.py --output ci-out/skill
+      - name: Evaluation harness tests (no Blender)
+        run: python -m unittest discover -s tools/eval/tests
       - name: Web unit tests
         working-directory: web
         env:

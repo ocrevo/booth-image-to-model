@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "annotations.light.v1",
+  "title": "Light annotations of one real booth picture (v1)",
+  "description": "Ground truth a person can add to a real exhibition-booth picture in a few minutes, to score the skill on pictures that are not synthetic. This is a schema only: no real picture is annotated yet, and no annotation file belongs in the repository unless its picture is free to use and the licence block says so. Pixels are measured from the top-left corner of the picture as stored; dimensions are metres.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "image", "booth_type", "open_sides", "inventory", "scope", "corners", "part_boxes", "printed_dimensions", "reviewer", "licence"],
+  "properties": {
+    "schema_version": { "const": "annotations.light.v1" },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "width", "height", "kind"],
+      "description": "The picture itself is never stored here. id is a neutral label (for example a hash of the file), never a client or project name.",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$" },
+        "width": { "type": "integer", "minimum": 16 },
+        "height": { "type": "integer", "minimum": 16 },
+        "kind": { "enum": ["photo", "render", "sketch"] },
+        "cropped": { "type": ["boolean", "null"], "description": "True when the picture is a crop of a larger frame (principal point off centre)." }
+      }
+    },
+    "booth_type": { "enum": ["inline", "corner", "peninsula", "island", "other", "unknown"] },
+    "open_sides": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["back", "front", "left", "right"] },
+      "description": "Booth edges with no wall (+Y is back, -Y front, -X left, +X right in the booth frame)."
+    },
+    "inventory": {
+      "type": "array",
+      "description": "What is in the booth, by kind and count. Only things inside the booth scope.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "count"],
+        "properties": {
+          "kind": { "enum": ["wall", "counter", "table", "chair", "planter", "display", "led_wall", "tv", "shelf", "light", "truss", "frame", "graphic", "other"] },
+          "count": { "type": "integer", "minimum": 0 },
+          "note": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["booth_polygon_px", "excluded"],
+      "properties": {
+        "booth_polygon_px": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "$ref": "#/$defs/pixel" },
+          "description": "The booth's floor outline as seen in the picture, in order."
+        },
+        "excluded": {
+          "type": "array",
+          "description": "Things in the picture that are not the booth (neighbours, venue, people, hall structure).",
+          "items": { "enum": ["neighbour_booth", "venue_structure", "people", "signage_of_venue", "background_hall", "other"] }
+        }
+      }
+    },
+    "corners": {
+      "type": "array",
+      "description": "The same corner tokens box_fit.py reads: a number, 0, W/2, -W/2, D/2, -D/2, H, F or ?name, in the booth frame (origin at the footprint centre, X right, Y back, Z up). Mark two of them check:true; they are held out of the fit.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "uv_px", "xyz"],
+        "properties": {
+          "id": { "type": "string" },
+          "uv_px": { "$ref": "#/$defs/pixel" },
+          "xyz": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "string" } },
+          "check": { "type": ["boolean", "null"] },
+          "visible": { "type": ["boolean", "null"], "description": "False when the point is hidden and was placed by reasoning." }
+        }
+      }
+    },
+    "part_boxes": {
+      "type": "array",
+      "description": "Floor-standing parts: a box around each in pixels and the pixel where it meets the floor (its centre).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "bbox_px", "floor_contact_px"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "enum": ["counter", "table", "chair", "planter", "box", "cylinder", "other"] },
+          "bbox_px": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" }, "description": "[x0, y0, x1, y1]" },
+          "floor_contact_px": { "$ref": "#/$defs/pixel" },
+          "occluded": { "type": ["boolean", "null"] }
+        }
+      }
+    },
+    "printed_dimensions": {
+      "type": "array",
+      "description": "Dimensions printed or drawn on the picture itself. Only what is written there; never a value the annotator estimated.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["applies_to", "value_m"],
+        "properties": {
+          "applies_to": { "enum": ["W", "D", "H", "other"] },
+          "value_m": { "type": "number", "exclusiveMinimum": 0 },
+          "text": { "type": ["string", "null"], "description": "The text as printed, for the reviewer to check." },
+          "location_px": { "oneOf": [{ "$ref": "#/$defs/pixel" }, { "type": "null" }] }
+        }
+      }
+    },
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["annotator", "date"],
+      "properties": {
+        "annotator": { "type": "string", "description": "A pseudonymous id, not a name." },
+        "second_reviewer": { "type": ["string", "null"] },
+        "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "notes": { "type": ["string", "null"] }
+      }
+    },
+    "licence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["picture_licence", "annotations_licence", "may_publish_picture"],
+      "properties": {
+        "picture_licence": { "type": "string", "description": "SPDX identifier or a short statement of the permission to use the picture." },
+        "annotations_licence": { "type": "string" },
+        "may_publish_picture": { "type": "boolean", "description": "False means the annotation file must stay local with the picture." },
+        "source": { "type": ["string", "null"], "description": "Where the picture came from, without client names." }
+      }
+    }
+  },
+  "$defs": {
+    "pixel": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } }
+  }
+}

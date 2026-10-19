@@ -80,6 +80,16 @@ reviewed masks.
 
 ## Roadmap
 
-Done: the standalone editor and the one-window studio. Next: corner-point correction in the studio, drawings (plan and elevations,
-SVG and DXF) from the same spec, a furniture library as prefab JSON built from existing primitives. The showcase and demo
-pictures are synthetic (made from the invented demo booth) and used as they are; they can be swapped later ([docs/sample-images.md](docs/sample-images.md)).
+Done: the standalone editor, the one-window studio, the evaluation harness with its baseline (I0, in `tools/eval/`) and the honest
+camera fit (I1). I1 was measured on synthetic scenes only; its known limitation is that valid input from cropped pictures is held for
+review too often ([tools/eval/RESULTS-I1c.md](tools/eval/RESULTS-I1c.md)). There is one list of priorities, in this order unless the
+owner reorders it:
+
+1. The accuracy iterations I2 to I7, one measured step at a time, each confirmed with the owner before the next starts. The next
+   planned step is I2: decide the booth type and the open sides first, then read the details. The plan and the progress table are in
+   [docs/design-review-2026-10.md](docs/design-review-2026-10.md).
+2. After them: corner-point correction in the studio, drawings (plan and elevations, SVG and DXF) from the same spec, and a
+   furniture library as prefab JSON built from existing primitives.
+
+The showcase and demo pictures are synthetic (made from the invented demo booth) and used as they are; they can be swapped later
+([docs/sample-images.md](docs/sample-images.md)).

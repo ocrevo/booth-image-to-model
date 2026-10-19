@@ -35,6 +35,7 @@ and `wrong_open_sides`.
 | `tests/` | Unit tests; `python -m unittest discover -s tools/eval/tests` (no Blender) |
 | `BASELINE.md` | The recorded baseline and the exact command that made it |
 | `RESULTS-I1.md`, `RESULTS-I1b-arms.md`, `RESULTS-I1c.md` | Measured comparisons with the baseline: round 1 of I1, the check-corner arms (round-1 code), and the final result of I1 |
+| `RESULTS-I2.md` | The measured result of I2 (booth type and open sides): grammar perturbations against the baseline and the default suite against the I1 final run |
 
 ## Quick start
 

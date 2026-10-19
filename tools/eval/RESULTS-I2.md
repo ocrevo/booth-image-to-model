@@ -205,7 +205,7 @@ The criteria were fixed on 2026-10-19 before any measurement and are quoted from
 | 1 | On the `mirror_fb`, `mirror_lr` and `wrong_open_sides` runs the gate flags at least 80 %; the baseline's rate is reported next to it | Pooled over the three: 83.3 % (80 of 96; interval 77.1 to 89.6) against 67.7 % (65 of 96) for the baseline. Per perturbation: `mirror_fb` 100 % (baseline 100 %), `mirror_lr` 100 % (100 %), `wrong_open_sides` 50.0 % (3.1 %) | **Met if pooled; not met per perturbation.** We do not count it as a clean pass |
 | 2 | On correct runs the false-alarm rate rises by at most 2 points against the I1 final run, and no accuracy median is clearly worse | Valid input flagged 14.1 % to 14.1 % (18 of 128 runs on both sides); 0 of 288 runs flagged by a topology reason; all 168 non-time rows of the comparison identical (no accuracy median differs) | **Met.** Time is not shown either way (see above) |
 | 3 | With `open_sides` declared, the compiled spec has 0 walls on open sides | Baseline code: 13 of 128 runs (10.2 %), all of them in the 13 `closed_as_open` runs, which is 40.6 % of the `wrong_open_sides` runs. I2: 0 of 128, and 0 of 288 in group C | **Met**, by construction (the compiler drops such a wall); it says the code does what it states, not that declarations are right |
-| 4 | Old scene files (the three keys absent) compile byte for byte as before, and the skill and web test suites pass | On the fixture scene, compared with the compiler before I2: `spec.json` and `box_fit.json` identical, `compile_report.json` differs only by the new `topology` key. The unit suites pass (list below). Full native regression of the skill: {{SKILL_TESTS}} | **Met** on the checks listed below. The skipped tests are not counted as passed; the browser smoke runs are not part of this document |
+| 4 | Old scene files (the three keys absent) compile byte for byte as before, and the skill and web test suites pass | On the fixture scene, compared with the compiler before I2: `spec.json` and `box_fit.json` identical, `compile_report.json` differs only by the new `topology` key. The unit suites pass (list below). Full native regression of the skill (Blender 5.2.2, `--require-native`): 417 tests, 0 failures, 0 errors, 0 skipped | **Met** on the checks listed below. The skipped tests are not counted as passed; the browser smoke runs are not part of this document |
 
 Criterion 4 in detail:
 
@@ -215,7 +215,7 @@ Criterion 4 in detail:
 * The suites ran before the snapshot was taken (`output/_eval/i2_measure.log`): web `npm test` 90 of 90; web Python 165 tests OK, 2
   skipped; harness 206 tests OK; six skill test modules (draft compile, compile rules, quality gate, topology, fast path, box-fit check)
   249 tests OK, 8 skipped; `check_docs.py` 203 files, 0 problems; all text files LF. The reasons for the skips are not in the log.
-* The full native regression of the skill (`run_tests.py --require-native`, no failures and no skips needed for a release): {{SKILL_TESTS}}
+* The full native regression of the skill (`run_tests.py --require-native`, no failures and no skips needed for a release): 417 tests run, 417 passed, 0 failures, 0 errors, 0 skipped
 
 **About the wording of criterion 1.** The criterion says that on the three kinds of run "the gate flags at least 80 %". It does not say
 whether that is one pooled rate or a rate for each. Both readings are given because they differ:

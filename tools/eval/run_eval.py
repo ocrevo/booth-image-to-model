@@ -4,6 +4,8 @@
     python tools/eval/run_eval.py oracle ... --check-corners 0      # the arm that holds no corner out of the fit (default 2: the case's own check corners)
     python tools/eval/run_eval.py replay --skill-dir booth-image-to-model --replies saved_replies/ --cases output/_eval/cases --out output/_eval/runs/replay
     python tools/eval/run_eval.py rescore --dir output/_eval/runs/now          # score stored raw outputs again, skill not called
+    python tools/eval/run_eval.py rescore --dir output/_eval/runs/old --to output/_eval/runs/old-h12   # ... and leave the old results.json alone
+    python tools/eval/run_eval.py oracle ... --perturbations mirror_fb mirror_lr wrong_open_sides      # the booth grammar perturbations (opt-in)
     python tools/eval/run_eval.py live   ...                      # not implemented in this round
 
 Modes
@@ -14,7 +16,8 @@ Modes
   replay  re-compile reader replies that were saved earlier: DIR/<case id>/scene.json (and optionally image.png). With --cases pointing
           at generated cases (DIR/<case id>/case.json) the replies are scored against the truth; without, only the compile outcome,
           the fit checks and the gate are reported.
-  rescore scores the stored raw outputs of an oracle run again with the current metrics code, without calling the skill.
+  rescore scores the stored raw outputs of an oracle run again with the current metrics code, without calling the skill. Without
+          --to it overwrites results.json and report.md of that folder; with --to they are written to another folder.
   live    would call a model on rendered pictures. Needs the owner's go-ahead, an API key and a cost confirmation, so it only says so.
 
 The harness never imports the skill: two versions can be measured one after the other and never share a Python process. What a
@@ -41,7 +44,7 @@ import skill_caps
 import stats
 import synth_generate
 
-HARNESS_VERSION = '1.1.0'
+HARNESS_VERSION = '1.2.0'
 LIVE_MESSAGE = ("live mode is not implemented in this round. It would call a model on rendered pictures, which needs the owner's "
                 "go-ahead, an API key and a cost confirmation first. Nothing was called.")
 
@@ -275,8 +278,11 @@ def run_replay(ctx, replies, truth_dir):
     return [replay_one(ctx, f, truth_dir) for f in folders]
 
 
-def rescore(directory, resamples):
-    """Score the stored raw outputs of an oracle run again with the current metrics code; the skill is not called."""
+def rescore(directory, resamples, to=None):
+    """Score the stored raw outputs of an oracle run again with the current metrics code; the skill is not called.
+
+    The new results.json and report.md replace the old ones in `directory`, or are written to the folder `to` (the raw outputs are always
+    read from `directory`), so that the stored numbers of an earlier measurement can stay as they are."""
     out = Path(directory).resolve()
     old = read_json(out / 'results.json')
     if not old or old['meta'].get('mode') != 'oracle':
@@ -291,8 +297,10 @@ def rescore(directory, resamples):
     meta.update(harness_version=HARNESS_VERSION, generator_version=synth_generate.GENERATOR_VERSION, check_corners=arm, scale_check=scale_check, rescored=True,
                 resamples=resamples, suite_sha256=synth_generate.suite_fingerprint(meta['suite'], meta['seed'], meta['n_cases']))
     agg = summarize_rows(rows, resamples)
-    write_json(out / 'results.json', {'meta': meta, 'aggregate': agg, 'rows': rows})
-    (out / 'report.md').write_bytes(report.render(f"Oracle evaluation: {meta['suite']}", meta, agg).encode('utf-8'))
+    target = Path(to).resolve() if to else out
+    target.mkdir(parents=True, exist_ok=True)
+    write_json(target / 'results.json', {'meta': meta, 'aggregate': agg, 'rows': rows})
+    (target / 'report.md').write_bytes(report.render(f"Oracle evaluation: {meta['suite']}", meta, agg).encode('utf-8'))
     return meta, agg, rows
 
 
@@ -327,6 +335,11 @@ def summarize_rows(rows, resamples):
     agg['by_crop'] = metrics.aggregate_by(scored, 'crop', resamples, keys=metrics.CUT_KEYS)
     agg['recall_by_n_fit'] = metrics.recall_by_bin(scored, 'outlier_recall', resamples)
     agg['recall_computed_by_n_fit'] = metrics.recall_by_bin(scored, 'outlier_recall_computed', resamples)
+    if any(r.get('topology_defect') is not None for r in scored):                  # harness 1.2: the booth grammar cuts
+        defect = [r for r in scored if r.get('topology_defect') is True]
+        if defect:
+            agg['by_topology_detail'] = metrics.aggregate_by(defect, 'topology_detail', resamples, keys=metrics.TOPOLOGY_KEYS)
+        agg['by_grammar_type'] = metrics.aggregate_by(scored, 'grammar_type', resamples, keys=metrics.TOPOLOGY_KEYS)
     return agg
 
 
@@ -378,6 +391,7 @@ def build_parser():
     r.set_defaults(seed=None, suite=None)
     rs = sub.add_parser('rescore', help='Score the stored raw outputs of an oracle run again (the skill is not called)')
     rs.add_argument('--dir', required=True, help='The --out folder of an earlier oracle run')
+    rs.add_argument('--to', help='Write results.json and report.md to this folder instead of over the ones in --dir')
     rs.add_argument('--resamples', type=int, default=stats.DEFAULT_RESAMPLES)
     live = sub.add_parser('live', help='Not implemented in this round')
     live.add_argument('rest', nargs='*')
@@ -392,8 +406,8 @@ def main(argv=None):
         print(LIVE_MESSAGE, file=sys.stderr)
         return 2
     if args.mode == 'rescore':
-        meta, _agg, rows = rescore(args.dir, args.resamples)
-        print(json.dumps({'mode': 'rescore', 'runs': len(rows), 'results': str(Path(args.dir).resolve() / 'results.json')}))
+        meta, _agg, rows = rescore(args.dir, args.resamples, args.to)
+        print(json.dumps({'mode': 'rescore', 'runs': len(rows), 'results': str((Path(args.to) if args.to else Path(args.dir)).resolve() / 'results.json')}))
         return 0
     out_dir = Path(args.out).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -13,7 +13,14 @@ DECISION_COLUMNS = ['flag_rate', 'decision_accuracy', 'sensitivity', 'gate_preci
 DIMENSION_COLUMNS = ['abs_w_err_med', 'abs_d_err_med', 'abs_h_err_med', 'abs_dim_err_max_med', 'abs_log_wh_med', 'abs_log_dh_med', 'flag_rate']
 CUT_COLUMNS = ['outlier_recall', 'outlier_recall_computed', 'outlier_false_alarm', 'loo_computed_rate', 'flag_rate', 'flag_on_valid_input',
                'sensitivity', 'gate_precision', 'corner_err_diag_med', 'abs_log_dh_med']
+TOPOLOGY_COLUMNS = ['topology_flag_rate', 'topology_catchable', 'topology_flag_any', 'topology_added_flag', 'topology_false_alarm', 'topology_added_false_alarm', 'topo_type_fail_rate', 'topo_wall_fail_rate',
+                    'topo_camera_fail_rate', 'topo_closed_warn_rate', 'topo_not_checked_rate', 'walls_on_open_declared_rate', 'walls_dropped_rate']
 SHORT = {
+    'topology_flag_rate': 'Wrong runs flagged, topology reason', 'topology_catchable': 'Wrong runs catchable at all (ceiling)', 'topology_flag_any': 'Wrong runs flagged, any reason',
+    'topology_added_flag': 'Wrong runs flagged only by topology', 'topology_added_false_alarm': 'Right runs flagged only by topology',
+    'topology_false_alarm': 'Right runs flagged, topology reason', 'topo_type_fail_rate': 'type check: fail', 'topo_wall_fail_rate': 'wall check: fail',
+    'topo_camera_fail_rate': 'camera check: fail', 'topo_closed_warn_rate': 'closed side, no wall: warn', 'topo_not_checked_rate': 'nothing checked',
+    'walls_on_open_declared_rate': 'Wall on a declared open side', 'walls_dropped_rate': 'Wall left out (open side)',
     'corner_err_diag_med': 'Corner err (% diag)', 'rot_err_deg_med': 'Rotation err (deg)', 'fov_err_deg_med': 'FOV err (deg)',
     'abs_log_wh_med': 'abs ln W/H', 'abs_log_dh_med': 'abs ln D/H', 'placement_m_med': 'Placement (m)',
     'flag_rate': 'Flagged', 'decision_accuracy': 'Flag = truth', 'sensitivity': 'Bad runs flagged', 'false_alarm_rate': 'Good runs flagged',
@@ -58,6 +65,11 @@ def table(header, body):
     return '\n'.join(lines)
 
 
+def _n(summary):
+    """' (n=..)' after a cell whose count is small enough to matter."""
+    return f" (n={summary['n']})" if summary and summary.get('n') and summary['n'] < 40 else ''
+
+
 def render(title, meta, aggregates):
     """aggregates: {'all': {...}, 'by_pert': {name: {...}}, 'by_booth_type': {...}} as produced by metrics.aggregate(_by)."""
     out = [f'# {title}', '']
@@ -92,6 +104,27 @@ def render(title, meta, aggregates):
         out += ['## By perturbation: absolute dimension errors (percent of the true value; a wrong assumed dimension shows up here, not in the ratios)',
                 '', table(['Perturbation'] + [SHORT[k] for k in DIMENSION_COLUMNS],
                 [[n] + [cell(by_pert[n][k], BY_KEY[k][5]) for k in DIMENSION_COLUMNS] for n in names]), '']
+    if aggregates.get('by_grammar_type') or aggregates.get('by_topology_detail'):
+        out += ['## Booth grammar (topology): what the gate does with mirrored labels, wrong open sides and right declarations', '',
+                '"Wrong runs" are the runs of the grammar perturbations (mirror_fb, mirror_lr, swap_fb_lr, wrong_open_sides); "right runs" are all other runs, '
+                'where the reader declares the true booth type and open sides. A column shows `-` when no run counted or when the skill has no such check '
+                '(a skill without the booth grammar shows 0 % in the flag columns and `-` in the check columns).', '']
+        names = [n for n in by_pert if n != 'all']
+        out += ['### By perturbation', '', table(['Perturbation'] + [SHORT[k] for k in TOPOLOGY_COLUMNS],
+                [[n] + [cell(by_pert[n].get(k), BY_KEY[k][5], with_ci=False) for k in TOPOLOGY_COLUMNS] for n in names]), '']
+        by_detail = aggregates.get('by_topology_detail') or {}
+        if by_detail:
+            kinds = [n for n in by_detail if n != 'all']
+            out += ['### By kind of mistake (wrong runs only; open_as_closed = an open side declared closed, closed_as_open = a closed side declared open)', '',
+                    table(['Mistake'] + [SHORT[k] for k in TOPOLOGY_COLUMNS],
+                          [[n] + [cell(by_detail[n].get(k), BY_KEY[k][5], with_ci=False) + _n(by_detail[n].get(k)) for k in TOPOLOGY_COLUMNS]
+                           for n in kinds]), '']
+        by_type = aggregates.get('by_grammar_type') or {}
+        if by_type:
+            kinds = [n for n in by_type if n != 'all']
+            out += ['### By true booth type (the generator\'s own "inline" scenes have three open sides and count as peninsula here)', '',
+                    table(['True type'] + [SHORT[k] for k in TOPOLOGY_COLUMNS],
+                          [[n] + [cell(by_type[n].get(k), BY_KEY[k][5], with_ci=False) for k in TOPOLOGY_COLUMNS] for n in kinds]), '']
     by_fit = aggregates.get('by_n_fit') or {}
     if by_fit:
         names = [n for n in metrics.N_FIT_BINS if n in by_fit]
@@ -124,6 +157,8 @@ def render(title, meta, aggregates):
             '- Absolute W, D and H errors are what a wrong stated dimension looks like: the ratios stay right and all three metres are off by about the same share.',
             '- "Really bad" is the harness convention in `tools/eval/metrics.py`: corner error above 1.5 % of the image diagonal, or W/H or D/H '
             'off by more than 0.10 in absolute ln. The flag is the quality gate of newer skills, or the box_fit status of older ones.',
+            '- Booth grammar (harness 1.2): a run whose corner tokens are mirrored or whose declared open sides are wrong counts as really bad '
+            '(it must be reviewed) whatever its fit residual; the topology reason columns count a flag only when the gate names a topology reason.',
             '- Seconds are wall time of the two command-line calls, including interpreter and import start-up, on the machine that ran them.',
             '- Synthetic scenes use a perfect pinhole camera and our own building blocks; see `tools/eval/README.md` for what that cannot show.', '']
     return '\n'.join(out)

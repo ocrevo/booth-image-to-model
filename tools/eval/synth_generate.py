@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import camgeom
+import grammar
 
 GENERATOR_VERSION = 1
 BOOTH_TYPES = ('inline', 'corner', 'peninsula', 'island')
@@ -342,6 +343,16 @@ def scene_for(case):
     }
 
 
+def with_grammar(case, scene):
+    """The scene in schema 1.2: the same scene plus the booth type, open sides and cutaway sides that a reader who got them right would state.
+
+    The truth comes from the case (grammar.truth_topology): the open sides are the sides without a wall, and the booth type follows from them
+    by the vocabulary of iteration I2, so the generator's own 'inline' scenes (a back wall only, three open sides) are peninsulas here."""
+    out = dict(scene, schema_version='1.2')
+    out.update(grammar.truth_topology(case))
+    return out
+
+
 def dumps(obj):
     return (json.dumps(obj, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
 
@@ -354,29 +365,35 @@ def generate_suite(name, seed, cases=None):
     return [build_case(seed, i) for i in range(n)]
 
 
-def suite_files(name, seed, cases=None):
-    """-> (manifest, {relative path: bytes}) of a suite: every case.json and scene.json and the suite.json that hashes them."""
+def suite_files(name, seed, cases=None, grammar_keys=False):
+    """-> (manifest, {relative path: bytes}) of a suite: every case.json and scene.json and the suite.json that hashes them.
+
+    grammar_keys=True writes each scene.json in schema 1.2 with the true booth type and open sides (see with_grammar). The default does not,
+    because the stored scenes are part of the pinned suite fingerprint; case.json is the same either way and already holds the truth
+    (booth_type, open_sides, walls). The manifest then says so (`"grammar": true`), which also changes the fingerprint of that variant."""
     files, entries = {}, []
     for case, scene in generate_suite(name, seed, cases):
-        pair = {'case.json': dumps(case), 'scene.json': dumps(scene)}
+        pair = {'case.json': dumps(case), 'scene.json': dumps(with_grammar(case, scene) if grammar_keys else scene)}
         for fname, data in pair.items():
             files[f"{case['case_id']}/{fname}"] = data
         entries.append({'case_id': case['case_id'], 'booth_type': case['booth_type'], 'dims_m': case['dims_m'],
                         'sha256': {k: hashlib.sha256(v).hexdigest() for k, v in pair.items()}})
     manifest = {'suite': name, 'seed': seed, 'generator_version': GENERATOR_VERSION, 'perturbations': SUITES[name]['perturbations'],
                 'cases': entries}
+    if grammar_keys:
+        manifest['grammar'] = True
     files['suite.json'] = dumps(manifest)
     return manifest, files
 
 
-def suite_fingerprint(name, seed, cases=None):
+def suite_fingerprint(name, seed, cases=None, grammar_keys=False):
     """sha256 of suite.json: changes when any case or scene of the suite changes."""
-    return hashlib.sha256(suite_files(name, seed, cases)[1]['suite.json']).hexdigest()
+    return hashlib.sha256(suite_files(name, seed, cases, grammar_keys)[1]['suite.json']).hexdigest()
 
 
-def write_suite(name, seed, out_dir, cases=None):
+def write_suite(name, seed, out_dir, cases=None, grammar_keys=False):
     """Write case folders and suite.json; returns the manifest."""
-    manifest, files = suite_files(name, seed, cases)
+    manifest, files = suite_files(name, seed, cases, grammar_keys)
     for rel, data in files.items():
         target = Path(out_dir) / rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -390,8 +407,10 @@ def main(argv=None):
     p.add_argument('--seed', type=int, default=20261019)
     p.add_argument('--out', required=True)
     p.add_argument('--cases', type=int, help='Only the first N scenes of the suite')
+    p.add_argument('--grammar', action='store_true',
+                   help='Write each scene.json in schema 1.2 with the true booth type, open sides and cutaway sides (default: the original scenes)')
     a = p.parse_args(argv)
-    manifest = write_suite(a.suite, a.seed, a.out, a.cases)
+    manifest = write_suite(a.suite, a.seed, a.out, a.cases, a.grammar)
     print(json.dumps({'suite': a.suite, 'seed': a.seed, 'cases': len(manifest['cases']), 'out': str(a.out)}))
     return 0
 

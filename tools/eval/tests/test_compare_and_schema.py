@@ -71,6 +71,24 @@ class Warnings(unittest.TestCase):
         self.assertEqual(cr.meta_warnings(self.META, dict(self.META)), [])
         self.assertEqual(cr.meta_warnings(dict(self.META, check_corners=2), dict(self.META, check_corners=0)), [])
 
+    def test_harness_1_1_and_1_2_rows_mean_the_same_but_1_0_is_still_flagged(self):
+        # 1.2.0 only added metrics and perturbations; the topology metrics are simply absent on the older side
+        self.assertEqual(cr.meta_warnings(self.META, dict(self.META, harness_version='1.2.0')), [])
+        self.assertEqual(cr.meta_warnings(dict(self.META, harness_version='1.2.0'), self.META), [])
+        self.assertEqual(len(cr.meta_warnings(dict(self.META, harness_version='1.0.0'), dict(self.META, harness_version='1.2.0'))), 1)
+
+    def test_topology_rows_are_compared_only_where_both_sides_have_them(self):
+        old = [{'case_id': f'c{i}', 'pert': 'swap_fb_lr', 'flagged': False, 'bad_fit': True, 'failed': False, 'n_injected': 0, 'valid_input': False}
+               for i in range(6)]
+        new = [dict(r, flagged=i < 4, topology_defect=True, topology_flagged=i < 4) for i, r in enumerate(old)]
+        groups = [('All runs', cr.compare_rows(old, new, cr.TABLE_KEYS, 50))]
+        text = cr.render({}, {}, groups, cr.TABLE_KEYS)
+        self.assertNotIn('Runs with a right topology', text)                    # no data on either side: no row
+        flag = cr.compare_rows(old, [dict(r, topology_defect=True, topology_flagged=r['flagged']) for r in new], ['topology_flag_rate'], 50)['topology_flag_rate']
+        self.assertEqual(flag['a'] is None, True)                              # the older side has no topology rows: nothing to subtract
+        both = cr.compare_rows([dict(r, topology_defect=True, topology_flagged=False) for r in old], new, ['topology_flag_rate'], 50)['topology_flag_rate']
+        self.assertAlmostEqual(both['delta'], 4 / 6)
+
     def test_each_difference_is_named(self):
         for key, value, needle in (('suite', 'smoke', 'suite differs'), ('seed', 2, 'seed differs'), ('suite_sha256', 'b' * 64, 'suite fingerprint differs'),
                                    ('generator_version', 2, 'generator version differs'), ('harness_version', '1.0.0', 'harness version differs'),

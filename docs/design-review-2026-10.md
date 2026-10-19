@@ -130,17 +130,19 @@ may claim.
 | Overhead | Everything above head height: fascia or header band, canopy, ceiling, hanging sign |
 | Floor | Walking surface: carpet, raised floor or platform, edge trim, ramp |
 | Elevation | A vertical face: back wall, side wall, partition |
-| Open sides | How many of the four sides face an aisle |
+| Open sides | The sides of the footprint with no wall, where visitors come in. The four sides are named front, back, left and right, as in the corner tokens of the scene description |
 | Inline (row) booth | One open side |
 | Corner booth | Two adjacent open sides |
 | Peninsula booth | Three open sides; only the back is closed |
 | Island booth | Four open sides |
+| Other | Anything else, such as two opposite open sides or an irregular footprint |
 | Shell scheme | Standard booth built from a modular wall system supplied by the organiser |
 | Space-only | Bare floor space; the exhibitor has a custom stand built |
 | Plan, elevation, reflected ceiling plan | The three drawings that describe floor, walls and overhead |
 
-Renderings often cut away a front wall or a roof panel to show the inside. A cut edge is not a real opening, and the scene
-description must say that it is a cutaway.
+Renderings often cut away a front wall or a roof panel to show the inside. A cutaway is a side whose wall, or the roof, is only
+left out in the picture to show the inside. It is not a real opening, and the scene description lists it as a cutaway side
+(`cutaway_sides`), not as an open side.
 
 **How the grammar constrains reading**, in order of expected benefit:
 
@@ -177,7 +179,7 @@ show that anything is better, so that comes first.
 |---|---|---|---|
 | I0 | Evaluation baseline on synthetic ground truth | Can prove "better than now" | None |
 | I1 | Honest fit: robust loss, leave-one-out error and outlier dropping as the independent check, an optional per-corner `fit: false` flag, a quality gate that also reads the scale checks, at most one assumed dimension | Accuracy: scale and camera, the largest error source | I0 |
-| I2 | Decide type and open sides first (`booth_type`, `open_sides`, `overhead`, `platform`, `cutaway`); walls only on closed sides | Accuracy (topology), speed (less rework) | I0 |
+| I2 | The reader states the type and the open sides first (`booth_type`, `open_sides`, `cutaway_sides`); the compiler checks the rest against them and puts walls only on closed sides. Overhead and platform are not part of I2 | Accuracy (topology), speed (less rework) | I0 |
 | I3 | Rectified views: floor plan and closed elevations | Accuracy: positions and sizes | I1 |
 | I4 | Discrete spec candidates | Accuracy and speed (less ambiguity) | Owner review of the priors |
 | I5 | Corners entered once; an `iterate` command that returns a summary and `next` | Speed: about half the agent calls | None |
@@ -281,8 +283,8 @@ This table is updated when a step lands. A step is "done" only when its before a
 |---|---|---|
 | I0 Evaluation baseline | Done | The harness is described in [tools/eval/README.md](../tools/eval/README.md); the recorded baseline, its command and the numbers are in [tools/eval/BASELINE.md](../tools/eval/BASELINE.md). The results documents of I1 are its first use |
 | I1 Honest fit | Done on 2026-10-19, with one known limitation | Final measurement and verdict: [RESULTS-I1c.md](../tools/eval/RESULTS-I1c.md). Earlier rounds: [RESULTS-I1.md](../tools/eval/RESULTS-I1.md) (first design) and [RESULTS-I1b-arms.md](../tools/eval/RESULTS-I1b-arms.md) (held-out corners against none, round-1 code). Over all 288 synthetic runs the median corner error fell from 0.34 % to 0.10 % of the image diagonal, the camera rotation error from 1.26 to 0.40 degrees and the part placement error from 0.075 m to 0.025 m; one 30 px outlier was named in 29 of 30 runs with 8 or more fitted corners. Valid input is sent to review in 14.1 % of the runs against 8.6 % before (criterion 3 missed by 0.5 point), mostly on cropped pictures |
-| I2 Type and open sides | Planned: the next step | Starts when the owner confirms it |
-| I3 Rectified views | Planned | |
+| I2 Type and open sides | Done on 2026-10-19, with a modest measured effect | Final measurement and verdict: [RESULTS-I2.md](../tools/eval/RESULTS-I2.md); design, checks and acceptance criteria: [the I2 section](#i2-type-and-open-sides). On the synthetic suite a wrong open side is sent to review in 50.0 % of the runs against 3.1 % before (the topology checks alone add 40.6 points), and a booth turned half way round in 46.9 % against 3.1 %. The topology adds no review flag to correct input (0 of 288 runs) and changes no accuracy number. Walls on a declared open side fell from 10.2 % of the runs to 0. Mirrored pictures were already flagged at 100 % by the fit, so the topology adds nothing there. Criterion 1 was worded loosely: met when pooled (83.3 %), not met for the wrong open sides alone (50.0 %). Limits: no real reader and no real picture, synthetic cameras always outside an open side, and the mean compile time was 0.93 s higher than in the I1 run, with no cause established |
+| I3 Rectified views | Next | Not started. It is next in the order of section 7, to be confirmed with the owner once the I2 numbers have been seen |
 | I4 Discrete spec candidates | Planned | Waits for the owner's review in [priors-review.md](priors-review.md) |
 | I5 Corners once, `iterate` | Planned | |
 | I6 Colour and region check | Planned | |
@@ -341,3 +343,112 @@ What changed from the first version of the criteria, which was written before an
   26.6 %) because the gate stays careful after the fit is repaired; see section 9.
 - **Camera numbers with three assumed dimensions are slightly worse** than the baseline's. The reader's prompt asks for at most one
   assumed dimension, so this case should become rarer, but that has not been tested with a reader.
+
+### I2: type and open sides
+
+**Status.** Done on 2026-10-19. The numbers, the verdict on each criterion and the full list of limits are in
+[RESULTS-I2.md](../tools/eval/RESULTS-I2.md); the sections below the criteria say what was measured against them.
+
+**The result in one paragraph.** The effect is modest. On the synthetic suite, 16 of 32 runs with a wrong open side are now sent to
+review, against 1 of 32 with the frozen baseline (the topology alone accounts for 13 of the 15 extra runs), and 15 of 32 runs with a
+booth turned half way round, against 1 of 32 (12 of the 14 extra). The checks raised no extra review flag on correct input in 288 runs
+and changed no accuracy number. The 100 % catch rate on mirrored pictures (all 64 runs) is the fit's, not the topology's: the
+baseline already flagged every one of them, and the topology adds nothing there. No real reader and no real picture has been tested,
+so we do not know how often readers make these mistakes or whether the checks raise false alarms on real pictures.
+
+**What it does, in plain words.** Until now the reader described walls, counters and screens, but never said which sides of the
+booth are open to visitors. That leaves three gaps. A reader can swap front and back, or left and right, in all its labels at once,
+and the camera fit cannot reveal this, because the mirrored labels fit the picture as well as the right ones. A render that cuts a
+wall away to show the inside can lead to a wall in the model on a side where visitors walk in. And a stated booth type can
+contradict the sides that the same reader called open. In I2 the reader first states the booth type, the open sides and the cutaway
+sides, before any detail, and the compiler uses these three statements as a check on the rest.
+
+**Words.** *Open sides* are the sides of the footprint with no wall, where visitors come in. *Inline* is one open side, *corner*
+two adjacent open sides, *peninsula* three open sides, *island* four open sides, and *other* is anything else, such as two opposite
+open sides or an irregular footprint. A *cutaway* is a side whose wall, or the roof, is only left out in the picture to show the
+inside; it is not a real opening. Sides are `front`, `back`, `left` and `right`, the same words as the corner tokens used by
+`box_fit.py` and the scene description.
+
+**New fields.** The scene description (`schemas/scene-description.v1.json`) gets three top-level keys. All three are required but
+may be null, because strict structured-output services need every property listed. Null means unknown, and then no topology check
+runs.
+
+| Key | Value |
+|---|---|
+| `booth_type` | `inline`, `corner`, `peninsula`, `island`, `other`, or null |
+| `open_sides` | A list of `front`, `back`, `left`, `right` without repeats, or null |
+| `cutaway_sides` | A list of the same words, or null |
+
+New readers write `schema_version` `1.2`. Older files are read as before: `upgrade_scene()` fills the three keys with null, and
+they compile to the same spec bytes as before.
+
+**What the compiler checks.** `draft_compile.py` adds a `topology` block to the compile report with the three statements and these
+checks. Each check has a status of `ok`, `warn`, `fail` or `not_checked`.
+
+| Check | What it looks at | When it fails or warns |
+|---|---|---|
+| `type_matches_sides` | Inline needs 1 open side, corner 2 adjacent open sides, peninsula 3, island 4; `other` accepts anything | Mismatch: fail |
+| `wall_on_open_side` | A wall in the scene description placed on an open side | The wall is left out of the spec, with a `dropped` entry "wall on an open side", and the status is fail. A wall on a cutaway side is allowed, because a cutaway is not open |
+| `closed_side_without_wall` | A closed side that has no wall | Warn only; never a reason for review by itself |
+| `camera_side` | Whether the fitted camera stands outside at least one open or cutaway side | If it stands only behind closed sides, the labels are probably mirrored: fail |
+
+`camera_side` is the check that can raise false alarms. It is measured on the synthetic data before it is kept. If it raises false
+alarms on correct runs by more than 2 percentage points, it is restricted, and the restriction is written here. **Result:** it raised
+none (0 failures in 288 runs with a correct declaration; one "cannot tell" warning, which does not change the gate), so it was kept
+without a restriction. The measurement covers only cameras that stand outside an open side, as every synthetic camera does.
+
+**The gate.** Any failed check puts the quality gate on `review` with a plain reason: the booth type does not match the open sides;
+a wall was placed on an open side and left out; the camera looks in through closed sides, so front and back, or left and right, may
+be swapped. A warning alone changes nothing. When `booth_type` and `open_sides` are null every check is `not_checked` and the gate
+is as before. The studio shows these reasons in plain English on the main path and carries the `topology` block unchanged in the
+detail view.
+
+**The reader.** The reading prompt (`web/server/prompts/read_scene.md`) asks for the type, the open sides and the cutaway sides
+first, with short definitions and a rule for telling a cutaway from an opening. Its repair rule asks again when `open_sides` is
+given but `booth_type` contradicts it, or when a side is listed twice.
+
+**How it is measured.** The synthetic generator already knows each scene's booth type and open sides, so the oracle `scene.json`
+now carries them (the reader is assumed right). Four new perturbations are opt-in through `--perturbations`: `mirror_fb` swaps
+every front and back corner token consistently, `mirror_lr` swaps left and right, `wrong_open_sides` declares the open sides
+wrong (one open side declared closed, or one closed side declared open, with the type changed to match), and `swap_fb_lr` swaps both
+pairs together, a half turn of the booth that a perfect fit cannot reveal. The fourth was added during I2, after a first finding by
+the skill work, so it is not one of the three in criterion 1. Every existing
+perturbation, the default `oracle-v1` list and its fingerprint stay as they are. The metrics are the share of runs on the new
+perturbations that the gate flags with a topology reason (recall), the false-alarm rate of the topology reasons on runs with correct
+topology, the number of walls on open sides in the compiled spec, and the status of each check. The frozen baseline skill ignores
+the new keys, so the harness strips them for it, as it already does for older versions.
+
+**Acceptance criteria.** Fixed on 2026-10-19, before any measurement. They apply to the same suite and seed as the I1 final arm
+(`oracle-v1`, seed 20261019; the I1 final run is `output/_eval/runs/i1c-check0`).
+
+| # | Criterion |
+|---|---|
+| 1 | On the `mirror_fb`, `mirror_lr` and `wrong_open_sides` runs the gate flags at least 80 %. The baseline's rate on the same runs is reported next to it |
+| 2 | On correct runs the gate's false-alarm rate rises by no more than 2 percentage points against the I1 final arm, and no accuracy median is clearly worse |
+| 3 | With `open_sides` declared, the compiled spec has 0 walls on open sides |
+| 4 | Old scene files (the three keys absent) compile byte for byte as before, and the skill and web test suites pass |
+
+**What the measurement found** (the details, the intervals and the other limits are in [RESULTS-I2.md](../tools/eval/RESULTS-I2.md)).
+
+| # | Result | Verdict |
+|---|---|---|
+| 1 | Pooled over the three perturbations the gate flags 83.3 % (80 of 96) against 67.7 % for the baseline. Per perturbation: `mirror_fb` 100 % (baseline 100 %), `mirror_lr` 100 % (100 %), `wrong_open_sides` 50.0 % (3.1 %) | Met if pooled; not met per perturbation |
+| 2 | Valid input flagged 14.1 % to 14.1 %; 0 of 288 runs flagged by a topology reason; every accuracy row identical to the I1 final run | Met. Time is not shown either way |
+| 3 | Walls on a declared open side: 13 of 128 runs (10.2 %) before, 0 of 128 and 0 of 288 now | Met, by construction |
+| 4 | Fixture scene compiles as before apart from the new `topology` key; the unit suites pass; full native regression in RESULTS-I2.md | Met on the checks listed |
+
+Criterion 1 was worded loosely: it does not say whether the 80 % is one pooled rate or a rate for each kind of run. Pooled it is met,
+but two of the three kinds are mirrored pictures that the baseline already flagged at 100 % through the fit, so they lift the pooled
+number without showing anything about the new checks. For `wrong_open_sides`, the kind the topology was written for, the rate is
+50.0 % against 3.1 %, and 80 % was out of reach on this suite anyway: at best 14 of 32 scenes (43.8 %) can be caught from the type and
+the sides (an island has no closed side that could be declared open, and a side wrongly called closed leaves the scene consistent). Within
+that ceiling the checks caught every run, 14 of 14. The real gain is `wrong_open_sides` from 3.1 % to 50.0 % and, outside the
+criterion, `swap_fb_lr` from 3.1 % to 46.9 %.
+
+**What this does not show.** The oracle mode feeds the topology directly, so it measures the code check, not whether a real reader
+states the type and the open sides correctly; that needs a replay of saved replies or a live run, which needs the owner's go-ahead.
+The scenes are synthetic and come from one generator, so the intervals are wide (32 scenes). The synthetic cameras always stand
+outside an open side, so how often `camera_side` raises a false alarm on a picture from inside the hall, from above, or through a
+cutaway is unknown. The suite has no booth with one open side and no cutaway scene, and no run declares a type that contradicts the
+sides, so those rules are covered by unit tests only. Compile time is not shown to be no worse (+0.93 s on the mean, cause not
+established; the unchanged `box_fit.py` also ran about 10 % slower in the same run).

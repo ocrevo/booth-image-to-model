@@ -13,7 +13,7 @@ OLD_BOX_FIT = "def solve(data):\n    return {'status': 'fitted'}\n"
 NEW_BOX_FIT = ("def solve(data):\n    flag = p.get('fit')\n    loss = 'soft_l1'\n    return {'status': 'check_failed', 'n_check': 2, 'loo_errors_px': {}}\n")
 
 
-def make_skill(root, fit_key, schema_versions, new_scripts):
+def make_skill(root, fit_key, schema_versions, new_scripts, topology=False):
     root = Path(root)
     (root / 'scripts').mkdir(parents=True)
     (root / 'schemas').mkdir()
@@ -24,6 +24,9 @@ def make_skill(root, fit_key, schema_versions, new_scripts):
     if fit_key:
         point['fit'] = {'type': ['boolean', 'null']}
     schema = {'properties': {'schema_version': {'enum': schema_versions}, 'corner_points': {'items': {'properties': point}}}}
+    if topology:
+        schema['properties'].update(booth_type={'type': ['string', 'null']}, open_sides={'type': ['array', 'null']}, cutaway_sides={'type': ['array', 'null']})
+        (root / 'scripts' / 'draft_compile.py').write_text("report['quality_gate'] = {}\nreport['topology'] = topology_report(scene, fit)\n", encoding='utf-8')
     (root / 'schemas' / 'scene-description.v1.json').write_text(json.dumps(schema), encoding='utf-8')
     (root / 'SKILL.md').write_text('---\nname: x\nmetadata:\n  version: "9.9.9-rc1"\n---\n', encoding='utf-8')
     return root
@@ -116,6 +119,53 @@ class Adapters(unittest.TestCase):
         self.assertNotIn('fit', SCENE['corner_points'][0])
         self.assertEqual(SCENE['schema_version'], 'scene-description.v1')
         self.assertNotIn('fit', POINTS['points'][0])
+
+
+TOPO_SCENE = dict(SCENE, booth_type='corner', open_sides=['front', 'right'], cutaway_sides=[])
+
+
+class BoothGrammarKeys(unittest.TestCase):
+    """Iteration I2: the scene description gets booth_type, open_sides and cutaway_sides; an older skill must not be sent them."""
+
+    def test_a_schema_with_the_three_keys_is_detected(self):
+        with tempfile.TemporaryDirectory() as d:
+            new = skill_caps.detect(make_skill(Path(d) / 'n', True, ['scene-description.v1', '1.0', '1.1', '1.2'], True, topology=True))
+            old = skill_caps.detect(make_skill(Path(d) / 'o', True, ['scene-description.v1', '1.0', '1.1'], True))
+        self.assertTrue(new['scene_topology_keys'])
+        self.assertTrue(new['compile_topology'])
+        self.assertFalse(old['scene_topology_keys'])
+        self.assertFalse(old['compile_topology'])
+
+    def test_one_missing_key_is_not_enough(self):
+        with tempfile.TemporaryDirectory() as d:
+            skill = make_skill(Path(d) / 's', True, ['1.1', '1.2'], True, topology=True)
+            schema_path = skill / 'schemas' / 'scene-description.v1.json'
+            schema = json.loads(schema_path.read_text(encoding='utf-8'))
+            del schema['properties']['cutaway_sides']
+            schema_path.write_text(json.dumps(schema), encoding='utf-8')
+            self.assertFalse(skill_caps.detect(skill)['scene_topology_keys'])
+
+    def test_the_newest_version_is_picked_only_when_the_keys_are_known(self):
+        base = {'scene_fit_key': True, 'scene_schema_versions': ['scene-description.v1', '1.0', '1.1', '1.2']}
+        self.assertEqual(skill_caps.pick_schema_version(dict(base, scene_topology_keys=True)), '1.2')
+        self.assertEqual(skill_caps.pick_schema_version(dict(base, scene_topology_keys=False)), '1.1')
+        self.assertEqual(skill_caps.pick_schema_version(dict(base, scene_fit_key=False, scene_topology_keys=False)), 'scene-description.v1')
+        self.assertEqual(skill_caps.pick_schema_version({'scene_fit_key': True, 'scene_schema_versions': ['1.1']}), '1.1')
+
+    def test_a_skill_that_knows_the_keys_gets_them_and_a_null_where_none_is_stated(self):
+        caps = {'scene_fit_key': True, 'scene_topology_keys': True, 'scene_schema_versions': ['1.1', '1.2'], 'box_fit_fit_flag': True}
+        scene = skill_caps.adapt_scene(TOPO_SCENE, caps, {'a': False})
+        self.assertEqual((scene['schema_version'], scene['booth_type'], scene['open_sides'], scene['cutaway_sides']), ('1.2', 'corner', ['front', 'right'], []))
+        bare = skill_caps.adapt_scene(SCENE, caps)
+        self.assertEqual((bare['booth_type'], bare['open_sides'], bare['cutaway_sides']), (None, None, None))      # required but nullable
+
+    def test_an_older_skill_never_sees_them(self):
+        caps = {'scene_fit_key': True, 'scene_topology_keys': False, 'scene_schema_versions': ['1.1'], 'box_fit_fit_flag': True}
+        scene = skill_caps.adapt_scene(TOPO_SCENE, caps)
+        for key in skill_caps.TOPOLOGY_KEYS:
+            self.assertNotIn(key, scene)
+        self.assertEqual(scene['schema_version'], '1.1')
+        self.assertIn('booth_type', TOPO_SCENE)                                   # the input is not modified
 
 
 if __name__ == '__main__':

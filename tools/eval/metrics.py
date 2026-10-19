@@ -15,6 +15,9 @@ Layers:
   outliers   share of injected bad corners the skill names, false alarms, how often the worst-fitting point is an injected one
   runtime    seconds in box_fit.py and in boothctl compile (compile fits the camera itself and is the production path)
   contract   box_fit.py output is one JSON object; the standalone fit and the fit inside compile agree
+  topology   (harness 1.2) booth grammar: does the gate flag a run whose corner tokens are mirrored or whose declared open sides are
+             wrong, with a topology reason? Does it raise topology reasons on runs whose declaration is right? Does the compiled spec
+             hold a wall on a side the reader declared open? What do the four topology checks say?
 
 "Really bad" is an evaluation convention, not a specification: corner error above BAD_CORNER_DIAG of the diagonal, or a W/H or
 D/H proportion off by more than BAD_RATIO_LOG in |ln|. It is scale-free on purpose (it did not change in harness 1.1); a wrong
@@ -35,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import camgeom
+import grammar
 import stats
 
 BAD_CORNER_DIAG = 0.015
@@ -222,6 +226,9 @@ def evaluate_run(case, pert, fit, report, spec, timings=None, failure=None):
                placement_median_m=pl['median_m'] if pl else None, placement_max_m=pl['max_m'] if pl else None,
                placement_share_w=pl['share_w'] if pl else None, parts_missing=pl['missing'] if pl else None)
     bad = failed or (ce is None) or ce['diag_frac'] > BAD_CORNER_DIAG or (rat is not None and max(abs(rat['log_wh']), abs(rat['log_dh'])) > BAD_RATIO_LOG)
+    topo = pert.get('topology') if isinstance(pert.get('topology'), dict) else None
+    defect = bool(topo['defect']) if topo else None                # a run whose corner tokens or declared sides contradict the picture
+    bad = bad or defect is True                                    # ... must be reviewed, whatever the fit residual says (see README, I2)
     flagged, source = gate_decision(fit, report, failed)
     row.update(bad_fit=bool(bad), flagged=bool(flagged), flag_source=source)
     row['bad_scale'] = bool(ae is not None and row['abs_dim_err_max'] > BAD_SCALE_ERR)
@@ -233,8 +240,9 @@ def evaluate_run(case, pert, fit, report, spec, timings=None, failure=None):
     row['scale_check_n'] = len(checks)
     row['scale_check_ok'] = (1.0 if all(c.get('ok') is True for c in checks) else 0.0) if checks else None
     row['scale_check_ratio'] = checks[0].get('ratio') if checks and _num(checks[0].get('ratio')) else None
-    row['valid_input'] = bool(not bad_ids and pert.get('dims_mode') in (None, 'one', 'all_exact', 'reply'))
-    row['defective_input'] = bool(bad_ids or pert.get('dims_mode') in ('all_guess', 'wrong_one'))
+    row['valid_input'] = bool(not bad_ids and pert.get('dims_mode') in (None, 'one', 'all_exact', 'reply') and defect is not True)
+    row['defective_input'] = bool(bad_ids or pert.get('dims_mode') in ('all_guess', 'wrong_one') or defect is True)
+    row.update(topology_fields(case, topo, defect, report, spec, flagged, failed))
     all_pts = [p for p in (fit or {}).get('points', []) if isinstance(p, dict) and _num(p.get('err_px'))]
     fitted_pts = [p for p in all_pts if p.get('fit') is not False]               # the check corners of the points list carry fit: false
     row['worst_point'] = max(fitted_pts, key=lambda p: p['err_px'])['id'] if fitted_pts else None
@@ -259,9 +267,49 @@ def evaluate_run(case, pert, fit, report, spec, timings=None, failure=None):
     return row
 
 
+def topology_fields(case, topo, defect, report, spec, flagged, failed):
+    """The booth grammar part of a row (harness 1.2): the truth label of the run, what the skill's topology block says, whether the gate
+    names a topology reason, and where the compiled walls stand against the declared and the true open sides."""
+    checks = grammar.topology_checks(report)                       # None for a skill (or a failed run) without a topology block
+    gate = (report or {}).get('quality_gate') if report else None
+    all_reasons = list(gate.get('reasons') or []) if isinstance(gate, dict) else []
+    hits = grammar.topology_reasons(all_reasons)
+    n_fail = sum(1 for v in checks.values() if v == 'fail') if checks is not None else None
+    wall_ids = [f"wall_{w['plane']}" for w in case.get('walls') or []]
+    dropped = [d for d in ((report or {}).get('dropped') or []) if isinstance(d, dict) and 'open side' in str(d.get('reason'))] if report else None
+    row = {'topology_kind': topo['kind'] if topo else None, 'topology_detail': topo['detail'] if topo else None, 'topology_defect': defect,
+           'topology_toggled_side': topo['toggled_side'] if topo else None,
+           'grammar_type': topo['truth']['booth_type'] if topo else None,
+           'declared_type': topo['declared']['booth_type'] if topo else None,
+           'topology_in_report': checks is not None, 'topology_declared': grammar.topology_declared(report),
+           'topo_n_fail': n_fail, 'topology_reason_hit': bool(hits), 'topology_reasons': hits,
+           'topology_best_case': grammar.best_case_catch(case, topo) if topo else None,
+           'topology_flagged': bool(flagged and not failed and (hits or (n_fail or 0) > 0)),
+           # flagged and every reason the gate gives is a topology one: the run would have passed without the topology checks
+           'topology_only_flagged': bool(flagged and not failed and hits and len(hits) == len(all_reasons))}
+    for cid, key in zip(grammar.CHECK_IDS, ('topo_type', 'topo_wall', 'topo_closed', 'topo_camera')):
+        row[key] = checks.get(cid) if checks is not None else None
+    row['topo_all_not_checked'] = (1.0 if checks and all(v == 'not_checked' for v in checks.values()) else 0.0) if checks is not None else None
+    row['walls_in_spec'] = len(grammar.spec_wall_sides(spec, wall_ids)) if spec else None
+    row['walls_on_open_declared'] = grammar.walls_on(spec, wall_ids, topo['declared']['open_sides']) if topo and spec else None
+    row['walls_on_open_truth'] = grammar.walls_on(spec, wall_ids, topo['truth']['open_sides']) if topo and spec else None
+    row['walls_dropped_open'] = len(dropped) if dropped is not None else None
+    return row
+
+
 # ---------------------------------------------------------------------------------------------------------------- aggregation
 def _val(key):
     return lambda r: r.get(key)
+
+
+def _status_rate(key, status):
+    """1.0 / 0.0 whether the check named by the row field `key` has this status; None when the skill's report has no such check."""
+    return lambda r: None if r.get(key) is None else (1.0 if r[key] == status else 0.0)
+
+
+def _positive(key):
+    """1.0 when the count in the row field is above zero, 0.0 when it is zero, None when it was not measured."""
+    return lambda r: None if r.get(key) is None else (1.0 if r[key] > 0 else 0.0)
 
 
 def _flag_and(want_bad):
@@ -328,6 +376,33 @@ METRICS = [
     ('worst_hit_rate', 'outliers', 'Worst-fitting fitted point is an injected bad corner', 'rate', _val('worst_hit'), 'percent'),
     ('worst_hit_rate_all_points', 'outliers', 'Harness 1.0 definition: the worst of all listed points (check corners too) is an injected one',
      'rate', _val('worst_hit_all_points'), 'percent'),
+    ('topology_flag_rate', 'topology', 'Runs with mirrored labels or a wrong side that are flagged with a topology reason (recall)', 'ratio',
+     lambda r: (1.0 if r.get('topology_flagged') else 0.0, 1.0) if r.get('topology_defect') is True else None, 'percent'),
+    ('topology_catchable', 'topology', 'The same runs the topology checks could catch at all (best case: perfect fit, true camera; undefined for single mirrors)', 'ratio',
+     lambda r: (1.0 if r['topology_best_case'] else 0.0, 1.0) if (r.get('topology_defect') is True and r.get('topology_best_case') is not None) else None, 'percent'),
+    ('topology_flag_any', 'topology', 'The same runs, flagged for any reason (what the baseline also counts)', 'ratio',
+     lambda r: (1.0 if r['flagged'] else 0.0, 1.0) if r.get('topology_defect') is True else None, 'percent'),
+    ('topology_added_flag', 'topology', 'The same runs, flagged only by topology reasons (what the topology adds to the old gate)', 'ratio',
+     lambda r: (1.0 if r.get('topology_only_flagged') else 0.0, 1.0) if r.get('topology_defect') is True else None, 'percent'),
+    ('topology_false_alarm', 'topology', 'Runs with a right topology that are flagged with a topology reason', 'ratio',
+     lambda r: (1.0 if r.get('topology_flagged') else 0.0, 1.0) if r.get('topology_defect') is False else None, 'percent'),
+    ('topology_added_false_alarm', 'topology', 'Runs with a right topology flagged only by topology reasons (extra review flags the topology causes)', 'ratio',
+     lambda r: (1.0 if r.get('topology_only_flagged') else 0.0, 1.0) if r.get('topology_defect') is False else None, 'percent'),
+    ('topology_fail_in_gate', 'topology', 'Runs with a failed topology check whose gate names a topology reason', 'ratio',
+     lambda r: (1.0 if r.get('topology_reason_hit') else 0.0, 1.0) if (r.get('topo_n_fail') or 0) > 0 else None, 'percent'),
+    ('topo_declared_rate', 'topology', 'Runs whose report shows a declared topology (the skill read the new keys)', 'rate',
+     lambda r: None if r.get('topology_declared') is None else (1.0 if r['topology_declared'] else 0.0), 'percent'),
+    ('topo_type_fail_rate', 'topology', 'Check type_matches_sides: fail', 'rate', _status_rate('topo_type', 'fail'), 'percent'),
+    ('topo_wall_fail_rate', 'topology', 'Check wall_on_open_side: fail', 'rate', _status_rate('topo_wall', 'fail'), 'percent'),
+    ('topo_closed_warn_rate', 'topology', 'Check closed_side_without_wall: warn (information only)', 'rate', _status_rate('topo_closed', 'warn'), 'percent'),
+    ('topo_camera_fail_rate', 'topology', 'Check camera_side: fail', 'rate', _status_rate('topo_camera', 'fail'), 'percent'),
+    ('topo_camera_warn_rate', 'topology', 'Check camera_side: warn (cannot tell)', 'rate', _status_rate('topo_camera', 'warn'), 'percent'),
+    ('topo_not_checked_rate', 'topology', 'Runs in which no topology check ran (a side or the type not declared)', 'rate', _val('topo_all_not_checked'), 'percent'),
+    ('walls_on_open_declared_rate', 'topology', 'Runs whose compiled spec holds a wall on a side the reader declared open', 'rate',
+     _positive('walls_on_open_declared'), 'percent'),
+    ('walls_on_open_truth_rate', 'topology', 'Runs whose compiled spec holds a wall on a truly open side', 'rate', _positive('walls_on_open_truth'), 'percent'),
+    ('walls_dropped_rate', 'topology', 'Runs in which the compiler left a wall out because it stood on an open side', 'rate',
+     _positive('walls_dropped_open'), 'percent'),
     ('fit_s_med', 'runtime', 'box_fit.py seconds (median)', 'median', _val('fit_s'), 's'),
     ('compile_s_med', 'runtime', 'boothctl compile seconds (median; it fits the camera itself)', 'median', _val('compile_s'), 's'),
     ('total_s_mean', 'runtime', 'Compile path seconds (mean)', 'mean', _val('total_s'), 's'),
@@ -335,9 +410,11 @@ METRICS = [
     ('fit_consistent', 'contract', 'box_fit.py and the fit inside compile agree on W, D and H', 'rate', _val('fit_consistent'), 'percent'),
 ]
 BY_KEY = {m[0]: m for m in METRICS}
-LAYER_ORDER = ['camera', 'scale', 'parts', 'decision', 'outliers', 'runtime', 'contract']
+LAYER_ORDER = ['camera', 'scale', 'parts', 'decision', 'outliers', 'runtime', 'contract', 'topology']
 HEADLINE = ['corner_err_diag_med', 'rot_err_deg_med', 'abs_log_wh_med', 'abs_log_dh_med', 'placement_m_med', 'flag_rate',
             'decision_accuracy', 'sensitivity', 'gate_precision', 'false_alarm_rate', 'flag_on_valid_input', 'outlier_recall', 'total_s_mean']
+# the metrics of the booth grammar layer (cut by perturbation, by kind of mistake, by true booth type)
+TOPOLOGY_KEYS = [m[0] for m in METRICS if m[1] == 'topology']
 # metrics cut by the number of fitted points (leave-one-out needs spare equations) and by cropped pictures
 CUT_KEYS = ['outlier_recall', 'outlier_recall_computed', 'outlier_false_alarm', 'loo_computed_rate', 'flag_rate', 'flag_on_valid_input',
             'sensitivity', 'gate_precision', 'corner_err_diag_med', 'abs_log_dh_med']

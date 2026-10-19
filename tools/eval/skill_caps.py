@@ -12,7 +12,9 @@ import re
 from pathlib import Path
 
 OLD_SCHEMA_VERSION = 'scene-description.v1'
-NEW_SCHEMA_VERSION = '1.1'
+FIT_SCHEMA_VERSION = '1.1'                    # the version that introduced corner_points[].fit
+NEW_SCHEMA_VERSION = '1.2'                    # the version that introduced the booth grammar keys
+TOPOLOGY_KEYS = ('booth_type', 'open_sides', 'cutaway_sides')
 
 
 def _read(path):
@@ -38,6 +40,7 @@ def detect(skill_dir):
     compile_src = _read(scripts / 'draft_compile.py')
     return {
         'scene_fit_key': 'fit' in point_props,
+        'scene_topology_keys': all(k in props for k in TOPOLOGY_KEYS),
         'scene_schema_versions': list(versions),
         'component_keys': component_keys,
         'box_fit_fit_flag': bool(re.search(r"""get\(\s*['"]fit['"]""", fit_src)) or 'n_check' in fit_src,
@@ -45,6 +48,7 @@ def detect(skill_dir):
         'box_fit_robust_loss': 'soft_l1' in fit_src,
         'box_fit_check_failed': 'check_failed' in fit_src,
         'compile_quality_gate': 'quality_gate' in compile_src,
+        'compile_topology': bool(re.search(r"""['"]topology['"]""", compile_src)),
     }
 
 
@@ -76,8 +80,10 @@ def baseline_commit(skill_dir):
 
 def pick_schema_version(caps):
     versions = caps['scene_schema_versions']
+    if caps.get('scene_topology_keys') and NEW_SCHEMA_VERSION in versions:
+        return NEW_SCHEMA_VERSION
     if caps['scene_fit_key']:
-        for want in (NEW_SCHEMA_VERSION, '1.0', OLD_SCHEMA_VERSION):
+        for want in (FIT_SCHEMA_VERSION, '1.0', OLD_SCHEMA_VERSION):
             if want in versions:
                 return want
     else:
@@ -91,9 +97,18 @@ def adapt_scene(scene, caps, fit_flags=None):
     """Return a copy of a canonical (old-format) scene description in the form this skill accepts.
 
     fit_flags maps a corner id to False for a check corner. A skill that knows the `fit` key gets it on every corner
-    (false, or null for 'fitted'); a skill that does not gets the key removed, so it fits every corner."""
+    (false, or null for 'fitted'); a skill that does not gets the key removed, so it fits every corner.
+
+    The booth grammar keys (booth_type, open_sides, cutaway_sides) are kept for a skill whose schema knows all three (null where the
+    scene does not state them, because they are required but nullable there) and removed for one that does not: its schema refuses
+    unknown keys, and it would ignore them anyway."""
     out = copy.deepcopy(scene)
     out['schema_version'] = pick_schema_version(caps)
+    for key in TOPOLOGY_KEYS:
+        if caps.get('scene_topology_keys'):
+            out.setdefault(key, None)
+        else:
+            out.pop(key, None)
     for c in out.get('components', []):                    # a newer schema may add keys that older scene files do not have
         for key in caps.get('component_keys', []):
             c.setdefault(key, None)

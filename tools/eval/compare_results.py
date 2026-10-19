@@ -35,7 +35,14 @@ DIRECTION = {
     'abs_w_err_med': -1, 'abs_d_err_med': -1, 'abs_h_err_med': -1, 'abs_dim_err_max_med': -1, 'gate_precision': 1, 'flag_on_defective': 1,
     'defect_precision': 1, 'bad_scale_rate': -1, 'flag_on_bad_scale': 1, 'flag_on_wrong_anchor': 1, 'outlier_recall_computed': 1,
     'outlier_recall_common': 1, 'outlier_recall_all_injected': 1, 'loo_computed_rate': 0, 'check_inj_flagged': 1, 'check_inj_check_failed': 0, 'worst_hit_rate_all_points': 1,
+    # booth grammar (harness 1.2): only the recall, the false alarm and the walls have a better direction; the check statuses are reported
+    'topology_flag_rate': 1, 'topology_catchable': 0, 'topology_flag_any': 1, 'topology_added_flag': 1, 'topology_false_alarm': -1, 'topology_added_false_alarm': -1, 'topology_fail_in_gate': 1, 'topo_declared_rate': 0,
+    'topo_type_fail_rate': 0, 'topo_wall_fail_rate': 0, 'topo_closed_warn_rate': 0, 'topo_camera_fail_rate': 0, 'topo_camera_warn_rate': 0,
+    'topo_not_checked_rate': 0, 'walls_on_open_declared_rate': -1, 'walls_on_open_truth_rate': -1, 'walls_dropped_rate': 0,
 }
+# Harness versions whose rows mean the same: 1.2.0 only added metrics and perturbations (the 1.1.0 fields of an old run, rescored with 1.2.0,
+# come out identical); the added topology metrics are simply absent on the older side and are skipped there.
+ROW_COMPATIBLE = (frozenset({'1.1.0', '1.2.0'}),)
 # meta fields that must agree for two sides to be paired scene by scene (a difference is a warning, never an error)
 MUST_MATCH = ('suite', 'seed', 'suite_sha256', 'generator_version', 'harness_version', 'n_cases')
 
@@ -52,6 +59,8 @@ def meta_warnings(meta_a, meta_b):
             out.append(f'suite fingerprint differs (A {show(a)}, B {show(b)}): the two sides were not made from the same ground truth; '
                        'scene N may not be the same scene')
         elif key == 'harness_version':
+            if frozenset({a, b}) in ROW_COMPATIBLE:
+                continue
             out.append(f'harness version differs (A {a}, B {b}): metric definitions may differ; rescore the older side (run_eval.py rescore) first')
         elif key == 'generator_version':
             out.append(f'generator version differs (A {a if a is not None else "not recorded"}, B {b if b is not None else "not recorded"}): '
@@ -64,7 +73,9 @@ def meta_warnings(meta_a, meta_b):
 TABLE_KEYS = ['corner_err_diag_med', 'rot_err_deg_med', 'fov_err_deg_med', 'abs_log_wh_med', 'abs_log_dh_med', 'abs_w_err_med',
               'abs_d_err_med', 'abs_h_err_med', 'placement_m_med', 'decision_accuracy', 'sensitivity', 'gate_precision', 'false_alarm_rate',
               'flag_on_injected', 'flag_on_valid_input', 'flag_on_wrong_anchor', 'outlier_recall', 'outlier_recall_computed',
-              'outlier_false_alarm', 'failure_rate', 'total_s_mean']
+              'outlier_false_alarm', 'failure_rate', 'total_s_mean',
+              'topology_flag_rate', 'topology_flag_any', 'topology_added_flag', 'topology_false_alarm', 'topology_added_false_alarm',
+              'walls_on_open_declared_rate']
 
 
 def load(path):

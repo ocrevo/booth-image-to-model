@@ -55,6 +55,38 @@ class Determinism(unittest.TestCase):
         self.assertEqual(hashlib.sha256(files['suite.json']).hexdigest(), a)
         self.assertEqual([c['case_id'] for c in manifest['cases']], [f'synth_{i:04d}' for i in range(4)])
 
+    def test_the_grammar_variant_adds_the_true_topology_to_the_scene_only(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            sg.write_suite('smoke', 7, a)
+            manifest = sg.write_suite('smoke', 7, b, grammar_keys=True)
+            self.assertTrue(manifest['grammar'])
+            self.assertNotIn('grammar', json.loads((Path(a) / 'suite.json').read_text(encoding='utf-8')))
+            for i in range(4):
+                name = f'synth_{i:04d}'
+                self.assertEqual((Path(a) / name / 'case.json').read_bytes(), (Path(b) / name / 'case.json').read_bytes())     # the truth is the same file
+                plain = json.loads((Path(a) / name / 'scene.json').read_text(encoding='utf-8'))
+                rich = json.loads((Path(b) / name / 'scene.json').read_text(encoding='utf-8'))
+                case = json.loads((Path(b) / name / 'case.json').read_text(encoding='utf-8'))
+                self.assertEqual(rich['schema_version'], '1.2')
+                self.assertEqual({k: v for k, v in rich.items() if k not in ('schema_version', 'booth_type', 'open_sides', 'cutaway_sides')},
+                                 {k: v for k, v in plain.items() if k != 'schema_version'})
+                self.assertEqual(sorted(rich['open_sides'] + [w['plane'] for w in case['walls']]), ['back', 'front', 'left', 'right'])
+                self.assertEqual(rich['cutaway_sides'], [])
+            self.assertNotEqual(sg.suite_fingerprint('smoke', 7), sg.suite_fingerprint('smoke', 7, grammar_keys=True))
+            self.assertEqual(sg.suite_fingerprint('oracle-v1', 20261019), ORACLE_V1_FINGERPRINT)       # the default is untouched
+
+    @unittest.skipUnless(__import__('importlib').util.find_spec('jsonschema'), 'jsonschema is not installed')
+    def test_the_grammar_scene_passes_the_schema_of_a_skill_that_has_the_keys(self):
+        from jsonschema import Draft202012Validator
+        schema = json.loads((SKILL / 'schemas' / 'scene-description.v1.json').read_text(encoding='utf-8'))
+        if 'booth_type' not in schema['properties']:
+            self.skipTest('the repository skill does not have the booth grammar keys yet')
+        caps = skill_caps.detect(SKILL)
+        for i in range(8):
+            case, scene = sg.build_case(7, i)
+            adapted = skill_caps.adapt_scene(sg.with_grammar(case, scene), caps, {pid: False for pid in case['check_ids']})
+            self.assertEqual([e.message for e in Draft202012Validator(schema).iter_errors(adapted)], [], case['case_id'])
+
     def test_files_use_lf_line_endings(self):
         with tempfile.TemporaryDirectory() as d:
             sg.write_suite('smoke', 5, d)

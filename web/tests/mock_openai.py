@@ -3,7 +3,10 @@
     python web/tests/mock_openai.py --scene scene.json [--port 0]        prints the port; Ctrl+C stops it
 
 Behaviours (one per request, the last one repeats): good, bad_scene, not_json, refusal, http401 (echoes a masked key, like the
-real one), http400 (output limit refused), http500, redirect (302 to another path), hang (answers after 3 s), incomplete.
+real one), http400 (output limit refused), http500, redirect (302 to another path), hang (answers after 3 s), incomplete,
+no_fit_keys (the scene without corner_points[].fit, as a service that ignores the schema might write it), few_corners (the scene with
+only five corner points), review (the scene with one corner clicked far from where it belongs, as scene_fixture.review_scene() writes
+it: the compiled quality gate says "review").
 Both wire formats are served: POST /v1/responses and POST /v1/chat/completions.
 """
 from __future__ import annotations
@@ -75,6 +78,14 @@ class MockOpenAI:
             scene['components'][0]['scope'] = 'nowhere'
         if behaviour == 'not_json':
             return 'Sorry, I cannot produce that.'
+        if behaviour == 'no_fit_keys':
+            for point in scene['corner_points']:
+                point.pop('fit', None)
+        if behaviour == 'few_corners':
+            scene['corner_points'] = scene['corner_points'][:5]
+        if behaviour == 'review':
+            import scene_fixture                              # the one definition of that scene; imported late, it pulls in the skill's test helpers
+            scene = scene_fixture.review_scene(scene)
         return json.dumps(scene)
 
     def answer(self, path, behaviour):

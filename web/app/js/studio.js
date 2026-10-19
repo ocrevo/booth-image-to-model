@@ -4,7 +4,7 @@
 
 import { createEditor } from './app.js';
 import { COPY, fill } from './studio_copy.js';
-import { deriveView } from './studio_logic.js';
+import { deriveView, gateOf, nextChain } from './studio_logic.js';
 
 const M = COPY.main;
 const A = COPY.advanced;
@@ -41,6 +41,7 @@ const ui = {
   job: null, current: null, health: null, jobs: [], consent: false, key: '', hd: false, compare: freshCompare(),
   pro: { open: false, tab: 0 }, more: false, editorJob: null, timer: null, ticker: null, last: '', offline: false, notes: {}, done: {},
   save: freshSave(), knownSpec: null, loadingSpec: false, starting: false,
+  chain: null, held: null,          // chain: a one-click render waits for the model; held: the job whose render is paused for a decision
   durations: loadDurations(), view: null, spaceHold: null, editor: null,
 };
 
@@ -61,7 +62,7 @@ async function call(method, path, { json, raw, type } = {}) {
 }
 
 const fileUrl = (rel, stamp = '') => `/api/jobs/${ui.job.id}/files/${rel}${stamp ? `?t=${encodeURIComponent(stamp)}` : ''}`;
-const ctx = () => ({ health: ui.health, consent: ui.consent, durations: ui.durations, hd: ui.hd, now: Date.now() / 1000 });
+const ctx = () => ({ health: ui.health, consent: ui.consent, durations: ui.durations, hd: ui.hd, now: Date.now() / 1000, held: Boolean(ui.job && ui.held === ui.job.id) });
 
 async function refreshHealth() {
   const { ok, data } = await call('GET', '/api/health');
@@ -84,6 +85,8 @@ async function leaveJob() {
 async function go(id, { force = false } = {}) {
   if (!force && !(await leaveJob())) return;
   ui.consent = false;                         // the consent is for one picture
+  ui.chain = null;                            // a one-click render and its pause belong to one job
+  ui.held = null;
   ui.notes = {};
   ui.done = {};
   ui.current = id || null;
@@ -124,6 +127,7 @@ async function loadJob(id, { quiet = false } = {}) {
   const signature = JSON.stringify(data);
   if (!quiet || signature !== ui.last) { ui.last = signature; render(); }
   await syncEditor();
+  advanceChain(data);
   if (!data.busy && ui.save.dirty && ui.save.state === 'wait') flushSave();
   const working = Boolean(data.busy) || Object.values(data.steps).some((s) => s.state === 'running' || s.state === 'queued');
   document.body.dataset.busy = String(working);
@@ -154,27 +158,52 @@ function saveBlocker() {
   return M.waitChip;
 }
 
+/** Ask the server to run steps. Resolves true when it started them. */
 async function startRun(list, extra = {}) {
-  if (!ui.job || ui.starting) return;
+  if (!ui.job || ui.starting) return false;
   ui.starting = true;
   try {
     ui.notes.card = null;
-    if (!(await flushSave())) { ui.notes.card = { error: saveBlocker() }; render(); return; }
+    if (!(await flushSave())) { ui.notes.card = { error: saveBlocker() }; render(); return false; }
     const body = { steps: list, hd: ui.hd, ...extra };
     if (list.includes('scene')) Object.assign(body, { mode: 'openai', consent: ui.consent });
     const res = await call('POST', `/api/jobs/${ui.job.id}/run`, { json: body });
     if (!res.ok) ui.notes.card = res.data || { error: `HTTP ${res.status}` };
+    else if (list.includes('build')) ui.held = null;                       // a render has started: nothing is paused any more
     await loadJob(ui.job.id);
+    return res.ok;
   } finally {
     ui.starting = false;
   }
 }
 
+/** "Generate and render": the model first, then (if the quality check agrees) the render. The server never decides this: when the
+ *  check says "review" the page stops here and offers "Render anyway". */
+async function startChain() {
+  if (!ui.job) return;
+  ui.held = null;
+  ui.chain = { job: ui.job.id };
+  if (!(await startRun(['scene', 'compile']))) ui.chain = null;
+}
+
+/** After each status: continue a one-click chain when the model is ready, or pause it for a decision. */
+function advanceChain(job) {
+  if (!ui.chain) return;
+  if (ui.chain.job !== job.id) { ui.chain = null; return; }
+  const next = nextChain(job);
+  if (next.action === 'wait') return;
+  if (ui.starting) { setTimeout(() => ui.job && advanceChain(ui.job), 200); return; }      // the click that started the chain is still returning
+  ui.chain = null;
+  if (next.action === 'hold') { ui.held = job.id; render(); }
+  else if (next.action === 'render') startRun(['build', 'glb']);
+}
+
 const actions = {
   generate: () => startRun(['scene', 'compile']),
   compileAgain: () => startRun(['compile']),
-  generateAll: () => startRun(['scene', 'compile', 'build', 'glb']),
+  generateAll: startChain,
   render: () => startRun(['build', 'glb']),
+  renderAnyway: () => startRun(['build', 'glb']),
   quickCheck: () => startRun(['preview']),
   exportGlb: () => startRun(['glb']),
   moreWays: () => { ui.more = true; render(); $('stepCard').querySelector('details')?.scrollIntoView({ block: 'nearest' }); },
@@ -604,8 +633,14 @@ function modelCard(view) {
     out.push(h('div', { class: 'st-warn', role: 'alert' }, h('p', {}, ui.notes.save), h('button', { id: 'btnUndoStep', class: 'link', onClick: () => { ui.notes.save = null; ui.editor.undo(); } }, M.undoStep)));
   }
   if (view.render.stale) out.push(h('p', { class: 'st-warn', id: 'staleNote' }, M.stale));
+  const held = view.card.held;                                          // a one-click render stopped here because the quality check says review
+  if (held) {                                                           // the studio cannot move a corner: the two honest ways on are to render or to start again
+    out.push(h('div', { class: 'st-warn', role: 'alert', id: 'gateHold' }, h('strong', {}, M.gateHeldTitle), h('p', {}, M.gateHeld),
+      h('button', { id: 'btnStartAgain', class: 'link', onClick: () => go(null) }, M.startAgain)));
+  }
   if (view.blender) {
-    out.push(h('button', { id: 'btnRender', class: 'big primary', onClick: actions.render }, view.render.built || view.render.stale ? M.renderAgain : M.render));
+    out.push(held ? h('button', { id: 'btnRenderAnyway', class: 'big primary', onClick: actions.renderAnyway }, M.renderAnyway)
+      : h('button', { id: 'btnRender', class: 'big primary', onClick: actions.render }, view.render.built || view.render.stale ? M.renderAgain : M.render));
     if (view.render.hdAllowed) out.push(h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'chkHd', checked: ui.hd, onChange: (e) => { ui.hd = e.target.checked; } }), h('span', {}, M.hd)));
     out.push(h('button', { id: 'btnQuickCheck', class: 'link', onClick: actions.quickCheck }, M.quickCheck));
   } else {
@@ -667,7 +702,8 @@ function renderPro() {
     body.replaceChildren(...[
       compile?.overlay && h('div', {}, h('h3', {}, A.overlayTitle), h('img', { src: fileUrl(compile.overlay, job.steps.compile.updated), alt: '' })),
       fit && h('p', { id: 'fitLine' }, fill(A.fitLine, { status: fit.status, rms: fit.rms_px, max: fit.max_px, n: compile.components })),
-      compile?.points?.length && h('div', {}, h('h3', {}, A.pointsTitle), h('table', {}, compile.points.map((p) => h('tr', {}, h('td', {}, p.id), h('td', { class: p.err_px > 6 ? 'bad' : '' }, String(p.err_px)))))),
+      compile && qualityBlock(compile),
+      compile?.points?.length && pointsTable(compile),
       preview?.sheet && h('div', {}, h('h3', {}, A.sheetTitle),
         h('div', { class: 'st-crop', style: `aspect-ratio:${job.image.width} / ${job.image.height};background-image:url('${fileUrl(preview.sheet, job.steps.preview.updated)}')` })),
       !compile && !preview && h('p', { class: 'muted' }, A.noDetail),
@@ -690,6 +726,40 @@ function renderPro() {
         preview?.sheet && h('li', {}, h('a', { href: fileUrl(preview.sheet), target: '_blank', rel: 'noopener' }, 'compare_sheet.png')))),
     ].filter(Boolean));
   }
+}
+
+/** Every corner with its error, held-out corners marked, and the error it had when predicted from the others (when the engine measured it). */
+function pointsTable(compile) {
+  const loo = compile.fit?.loo_errors_px || {};
+  const rows = compile.points.map((p) => h('tr', {},
+    h('td', {}, p.check ? `${p.id} (${A.checkTag})` : p.id),
+    h('td', { class: p.err_px > 6 ? 'bad' : '' }, String(p.err_px)),
+    h('td', {}, loo[p.id] != null ? String(loo[p.id]) : '')));
+  return h('div', {}, h('h3', {}, A.pointsTitle), h('table', {}, h('tr', {}, A.pointsHead.map((t) => h('th', {}, t))), rows));
+}
+
+/** The engine's quality check in its own words, with the numbers behind it (Advanced view, alignment page). */
+function qualityBlock(compile) {
+  const gate = gateOf(compile);
+  const fit = compile.fit || {};
+  const num = (v) => (typeof v === 'number' ? String(Math.round(v * 100) / 100) : '–');
+  const lines = [];
+  if (typeof fit.n_check === 'number' && fit.n_check > 0 && fit.check_median_px != null) {
+    lines.push(fill(A.checkLine, { n: fit.n_check, median: num(fit.check_median_px), max: num(fit.check_max_px) }));
+  }
+  if (fit.loo_median_px != null) lines.push(fill(A.looLine, { median: num(fit.loo_median_px), max: num(fit.loo_max_px) }));
+  else if (fit.n_check === 0) lines.push(A.noCheckLine);                                      // nothing held out and nothing to leave out
+  else if (fit.loo_reliable === false) lines.push(A.looUnreliableLine);                       // held-out corners exist; no corner can be named
+  if (Array.isArray(fit.outliers) && fit.outliers.length) lines.push(fill(A.outliersLine, { ids: fit.outliers.join(', ') }));
+  for (const c of Array.isArray(fit.scale_checks) ? fit.scale_checks : []) {
+    if (!c) continue;
+    const verdict = c.ok === false ? (c.error ? A.scaleErr : A.scaleOff) : A.scaleOk;
+    lines.push(fill(A.scaleLine, { id: c.id, measured: num(c.measured_m ?? c.measured_height_m), expected: num(c.expected_m ?? c.expected_height_m), ratio: num(c.ratio), verdict }));
+  }
+  if (typeof fit.hint === 'string' && fit.hint) lines.push(fit.hint);                         // the engine's own advice (re-click what it names)
+  return h('div', { id: 'qualityBlock' }, h('h3', {}, A.gateTitle),
+    h('p', { id: 'gateLine' }, gate ? fill(A.gateLine, { status: gate.status }) : A.gateNone),
+    h('ul', {}, [...(gate ? gate.reasons : []), ...lines].map((t) => h('li', {}, t))));
 }
 
 // ---------------------------------------------------------------- start

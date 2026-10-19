@@ -33,12 +33,47 @@ export function expectedText(seconds) {
   return lo === hi ? fill(M.minutesAbout, { n: lo }) : fill(M.minutesRange, { lo, hi });
 }
 
+/** The engine's verdict on the camera and scale, as the compile step passes it on: { status: 'pass' | 'review', reasons: [string] }.
+ *  null when the engine reports none (the page then behaves as before: nothing is held back). The engine's own reasons are written
+ *  for the Advanced view; the main path words the verdict itself (gateNotes). */
+export function gateOf(detail) {
+  const gate = detail?.quality_gate;
+  if (!gate || (gate.status !== 'pass' && gate.status !== 'review')) return null;
+  return { status: gate.status, reasons: Array.isArray(gate.reasons) ? gate.reasons.map(String) : [] };
+}
+
+/** True when a scale check failed (measured outside its tolerance, or could not be measured): the assumed dimension may be wrong. */
+export function scaleCheckFailed(fit) {
+  return Array.isArray(fit?.scale_checks) && fit.scale_checks.some((c) => c && c.ok === false);
+}
+
+/** True when the engine had something independent to judge the corners by: held-out corners, or a leave-one-out check it trusts.
+ *  Unknown (an engine that reports neither number) counts as true: the page then says nothing it cannot know. */
+function hadIndependentCheck(fit) {
+  if (typeof fit.n_check !== 'number') return true;
+  return fit.n_check > 0 || (fit.loo_median_px !== null && fit.loo_median_px !== undefined);
+}
+
+/** What a review verdict adds to the two status lines (ambiguous and off, which already say their part), in plain words. The engine's
+ *  own reasons are for the Advanced view; here every note comes from the fit keys: named corners, a failed cross-check, a failed scale
+ *  check, or too few corners to check anything. */
+function gateNotes(detail) {
+  const fit = detail.fit || {};
+  const notes = [];
+  if (Array.isArray(fit.outliers) && fit.outliers.length) notes.push(M.gateWhyOutlier);       // the more specific of the two corner notes
+  else if (fit.status === 'check_failed') notes.push(M.gateWhyChecks);
+  if (scaleCheckFailed(fit)) notes.push(M.gateWhyScale);
+  if (!hadIndependentCheck(fit)) notes.push(M.gateWhyNoCheck);
+  return notes;
+}
+
 /** The compile result in plain words, most important line first. Each line: { tone, text, look } where `look` names the
  *  Advanced view page that explains it. */
 export function plainFit(detail) {
   if (!detail || !detail.fit) return [];
   const fit = detail.fit;
   const n = detail.components ?? 0;
+  const review = gateOf(detail)?.status === 'review';
   const lines = [];
   const off = fit.status === 'high_residual' || (typeof fit.rms_px === 'number' && fit.rms_px > 4);
   if (fit.status === 'ambiguous') lines.push({ tone: 'warn', text: M.sizeUnknown, look: 'data' });
@@ -46,10 +81,14 @@ export function plainFit(detail) {
     const worst = fit.worst_points?.[0];
     const px = Math.round(worst?.err_px ?? fit.max_px ?? fit.rms_px ?? 0);
     lines.push({ tone: 'warn', text: fill(M.fitOff, { px }), look: 'align' });
-  } else if (fit.status === 'fitted') {
+  } else if (fit.status === 'fitted' && !review) {        // "ready" is only said when the independent checks agree too
     lines.push({ tone: 'good', text: fill(M.fitGood, { n }) });
   } else if (fit.status !== 'ambiguous') {
     lines.push({ tone: 'info', text: fill(M.fitDone, { n }), look: 'align' });
+  }
+  if (review) {
+    for (const text of gateNotes(detail)) lines.push({ tone: 'warn', text, look: 'align' });
+    if (!lines.some((l) => l.tone === 'warn')) lines.push({ tone: 'warn', text: M.gateWhyGeneric, look: 'align' });
   }
   if (detail.dropped?.length) lines.push({ tone: 'info', text: fill(M.dropped, { n: detail.dropped.length }), look: 'data' });
   if (detail.assumed_total) lines.push({ tone: 'info', text: fill(M.assumed, { n: detail.assumed_total }), look: 'data' });
@@ -98,8 +137,21 @@ const state = (job, step) => job.steps?.[step]?.state ?? 'idle';
 const entry = (job, step) => job.steps?.[step] ?? {};
 const isWorking = (s) => s === 'running' || s === 'queued';
 
+/** What a one-click "Generate and render" does next, decided from the job status after each poll. The server runs only the steps the
+ *  page asks for, so the page asks for the model first and decides here whether to go on to the render:
+ *  'wait' (a step still runs), 'render' (the model is ready and the checks agree, or the engine reports none), 'hold' (the quality
+ *  check says review: stop before the render and let the person decide), 'stop' (a step failed; its card says so). */
+export function nextChain(job) {
+  if (!job?.steps) return { action: 'stop' };
+  if (state(job, 'scene') === 'error' || state(job, 'compile') === 'error') return { action: 'stop' };
+  if (job.busy || ['scene', 'compile'].some((name) => isWorking(state(job, name)))) return { action: 'wait' };
+  if (state(job, 'scene') !== 'done' || state(job, 'compile') !== 'done') return { action: 'stop' };
+  return { action: gateOf(entry(job, 'compile').detail)?.status === 'review' ? 'hold' : 'render' };
+}
+
 /**
- * ctx: { health: {blender, openai: {configured, model}}, consent: boolean, durations: {step: seconds}, now: seconds since epoch }
+ * ctx: { health: {blender, openai: {configured, model}}, consent: boolean, durations: {step: seconds}, now: seconds since epoch,
+ *        held: true while a one-click render waits for the person to decide after a review verdict }
  * Returns everything the page needs to draw: phase, the four step marks, the working/error/model card, downloads, compare sources.
  */
 export function deriveView(job, ctx = {}) {
@@ -159,7 +211,10 @@ export function deriveView(job, ctx = {}) {
     card = { kind: 'generate', needKey: !keyConfigured, consent: Boolean(ctx.consent), canGenerate: keyConfigured && Boolean(ctx.consent),
              canGenerateAll: keyConfigured && Boolean(ctx.consent) && blender };
   } else {
-    card = { kind: 'model', fit: plainFit(compileDetail), notice: sideError ? describeError(sideError.name, sideError.entry) : null };
+    const gate = gateOf(compileDetail);
+    const held = Boolean(ctx.held) && gate?.status === 'review' && !['done', 'stale'].includes(buildState);     // a finished render ends the pause
+    card = { kind: 'model', fit: plainFit(compileDetail), notice: sideError ? describeError(sideError.name, sideError.entry) : null,
+             gate: gate?.status ?? null, held };
   }
 
   const downloads = [];

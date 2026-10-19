@@ -2,8 +2,9 @@
 // real page in headless Chrome/Edge through the DevTools protocol (real key presses, file choosers, clicks) in ONE window:
 //   empty stage -> picture -> a refused key -> the upload alternative -> the model over the photo -> before/after (wipe, overlay, photo,
 //   hold space) -> edit on the stage and autosave -> model file export -> quick check -> render -> downloads -> stale after an edit ->
-//   advanced view; then the whole way again with a good key, "generate and go straight to the picture", a ready-made model file,
-//   a vanished server, and the recent jobs. The Blender steps run when the server finds Blender (skip with --skip-blender).
+//   advanced view; then the whole way again with a good key, "generate and go straight to the picture" (and, when a corner is
+//   clicked in the wrong place, the pause before the render with "Render anyway"), a ready-made model file, a vanished server, and the
+//   recent jobs. The Blender steps run when the server finds Blender (skip with --skip-blender).
 //
 //   node tests/studio_smoke.mjs [--shots <dir>] [--chrome <path>] [--skip-blender] [--image <png> --scene <json>]     (npm run smoke:studio)
 
@@ -114,7 +115,11 @@ async function main() {
   const badSceneFile = join(fixtures, 'bad_scene.json');
 
   // ---- the stand-in for OpenAI, then the studio server without a key
-  const mock = spawn(PYTHON, [join(here, 'mock_openai.py'), '--scene', sceneFile], { stdio: ['ignore', 'pipe', 'inherit'] });
+  // Readings, in order: the refused key (the first answer is spent on it), a good one, the one-click render's, and then readings whose
+  // one corner is clicked far from where it belongs ("review", from scene_fixture.review_scene()). A real picture (--image) gets good ones
+  // only: its own numbers decide.
+  const mockScript = custom ? 'good' : 'good,good,good,review';
+  const mock = spawn(PYTHON, [join(here, 'mock_openai.py'), '--scene', sceneFile, '--script', mockScript], { stdio: ['ignore', 'pipe', 'inherit'] });
   children.push(mock);
   const base = await new Promise((res, rej) => {
     let text = '';
@@ -413,6 +418,9 @@ async function main() {
     assert.equal(await visible('#pro'), true);
     await waitFor(() => text('#proBody').then((t) => /Fit|px/.test(t)), 'the alignment page');
     assert.ok((await ev("document.querySelectorAll('#proBody img').length")) >= 1);
+    assert.match(await text('#qualityBlock'), /Quality check[\s\S]*Verdict: (pass|review)/);       // the engine's own verdict and numbers
+    assert.match(await text('#proBody'), /Error when predicted from the others/);                     // the corner table says what leaving a corner out does
+    if (!custom) assert.match(await text('#qualityBlock'), /Leave-one-out error/);                    // every corner of the synthetic reading is fitted and checked by it
     await ev("document.querySelectorAll('#proTabs button')[1].click()");
     assert.match(await text('#proBody'), /Step log/);
     assert.equal(await ev('location.pathname'), '/');
@@ -440,10 +448,43 @@ async function main() {
       await newJob();
       await click('chkConsent');
       await click('btnGenerateAll');
+      if (custom) {                                                         // a real picture: its own numbers may ask for the pause; answer it
+        await waitFor(async () => (await visible('#btnRenderAnyway')) || (await stepState(4)) === 'done', 'the render or the pause', 1500000);
+        if (await visible('#btnRenderAnyway')) await click('btnRenderAnyway');
+      }
       await waitStep(4, 'done', 1500000);
       await waitFor(() => ev("Boolean(document.querySelector('#downloads a[data-key=client]'))"), 'the client picture link');
+      assert.equal(await visible('#gateHold'), false);                      // the checks agreed: nothing was paused
       await shot('12_straight_to_picture.png');
     });
+
+    if (!custom) {
+      await step('when a corner is clicked in the wrong place, the one-click render stops before the render, says why plainly, and renders when asked', async () => {
+        await newJob();
+        await click('chkConsent');
+        await click('btnGenerateAll');
+        await waitFor(() => visible('#gateHold'), 'the pause before the render', 300000);
+        const id = await jobId();
+        const held = await api(`/api/jobs/${id}`);
+        assert.equal(held.steps.compile.state, 'done');
+        assert.equal(held.steps.compile.detail.quality_gate.status, 'review');
+        assert.equal(held.steps.build.state, 'idle');                        // nothing was rendered
+        assert.equal(await stepState(4), 'todo');
+        assert.match(await text('#gateHold'), /paused/i);
+        assert.match(await text('#stepCard'), /wrong place|not line up/);   // the reason, in plain words
+        assert.match(await text('#gateHold'), /render anyway, or start again with another picture or your own file/i);   // no promise to fix anything
+        assert.doesNotMatch(await text('#gateHold'), /\bfix\b/i);
+        assert.equal(await visible('#btnStartAgain'), true);
+        assert.equal(await visible('#btnRenderAnyway'), true);
+        assert.equal(await visible('#btnRender'), false);
+        assert.deepEqual(findBanned(await text('#stepCard')), []);
+        await shot('12b_review_pause.png');
+        await click('btnRenderAnyway');
+        await waitStep(4, 'done', 1500000);
+        assert.equal(await visible('#gateHold'), false);
+        assert.match(await text('#btnRender'), /Render again/);
+      });
+    }
   }
 
   await step('a ready-made model file for this picture skips reading; one for another picture is refused with the file named', async () => {

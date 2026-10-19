@@ -19,12 +19,13 @@ REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO / 'web' / 'server'))
 sys.path.insert(0, str(REPO / 'booth-image-to-model' / 'tests'))
+import numpy as np
 from PIL import Image
 
 import engine                                        # noqa: E402
 import grid                                          # noqa: E402
 import reader_openai as reader                       # noqa: E402
-import test_draft_compile as fixtures                # noqa: E402
+import scene_fixture as fixtures                      # noqa: E402
 from mock_openai import MockOpenAI                   # noqa: E402
 from server import Config, create_server             # noqa: E402
 from test_server import Api, png_bytes               # noqa: E402
@@ -66,6 +67,34 @@ class Pictures(unittest.TestCase):
         self.assertEqual(marked.getpixel((125, 125)), (60, 60, 60))         # between lines (every 50 px here) nothing is drawn
         self.assertNotEqual(marked.getpixel((100, 125)), (60, 60, 60))      # on a grid line something is
 
+    @staticmethod
+    def drawn(im, box, colour=None, background=(60, 60, 60)):
+        """How many pixels in box = (x0, y0, x1, y1) are `colour` (pure yellow: label text; the lines are cyan), or, without one, are not
+        the background."""
+        pixels = np.asarray(im.crop(box))
+        return int((pixels == colour).all(axis=2).sum() if colour else (pixels != background).any(axis=2).sum())
+
+    def test_numbers_are_on_all_four_edges_and_inside_the_picture(self):
+        w, h = 960, 600
+        marked = grid.draw_grid(Image.new('RGB', (w, h), (60, 60, 60)))
+        yellow = (255, 255, 0)
+        self.assertGreater(self.drawn(marked, (0, 0, w, 18), yellow), 30)                # x along the top edge
+        self.assertGreater(self.drawn(marked, (0, h - 18, w, h), yellow), 30)            # x along the bottom edge
+        self.assertGreater(self.drawn(marked, (0, 40, 30, h - 30), yellow), 15)          # y down the left edge
+        self.assertGreater(self.drawn(marked, (w - 30, 40, w, h - 30), yellow), 15)      # y down the right edge
+        for x, y in ((150, 150), (450, 300), (750, 450)):                                # x,y labels at every third crossing, with a tick on it
+            self.assertGreater(self.drawn(marked, (x - 5, y - 5, x + 5, y + 5), yellow), 5, (x, y))
+            self.assertGreater(self.drawn(marked, (x + 5, y + 3, x + 45, y + 18)), 40, (x, y))
+        self.assertEqual(self.drawn(marked, (101, 51, 149, 99)), 0)                      # inside a grid cell, away from the lines, the picture is untouched
+        self.assertEqual(marked.getpixel((125, 125)), (60, 60, 60))
+
+    def test_a_label_that_does_not_fit_is_left_out_instead_of_being_cut(self):
+        for size in ((960, 600), (2048, 1280), (400, 300), (1500, 1000)):
+            marked = grid.draw_grid(Image.new('RGB', size, (60, 60, 60)))
+            w, h = size
+            for box in ((0, 0, w, 1), (0, h - 1, w, h), (0, 0, 1, h), (w - 1, 0, w, h)):    # the picture's own border row and column
+                self.assertEqual(self.drawn(marked, box, (255, 255, 0)), 0, (size, box))                  # no number is cut off by it
+
 
 class Contract(unittest.TestCase):
     def test_the_provider_schema_can_be_used_in_strict_mode(self):
@@ -90,12 +119,19 @@ class Contract(unittest.TestCase):
         walk(schema, 'scene')
         self.assertGreater(len(seen), 5)
         self.assertEqual(schema['properties']['image']['type'], 'object')
+        point = schema['properties']['corner_points']['items']
+        self.assertIn('fit', point['required'])                                                  # every point carries the flag ...
+        self.assertEqual(sorted(point['properties']['fit']['type']), ['boolean', 'null'])       # ... which may be null (= used in the fit)
+        self.assertIn('1.1', schema['properties']['schema_version']['enum'])
 
     def test_pixels_are_scaled_back_to_the_original_picture(self):
         scene = fixtures.scene()
         out = reader.scale_scene_pixels(scene, 2.0, 1920, 1200)
         self.assertEqual(out['image'], {'width': 1920, 'height': 1200})
         self.assertEqual(out['corner_points'][0]['uv_px'], [round(v * 2, 2) for v in scene['corner_points'][0]['uv_px']])
+        self.assertEqual([p['fit'] for p in out['corner_points']], [p['fit'] for p in scene['corner_points']])      # the flags travel with the points
+        held = reader.scale_scene_pixels(fixtures.held_out_scene(), 2.0, 1920, 1200)
+        self.assertEqual([p['id'] for p in held['corner_points'] if p['fit'] is False], fixtures.HELD_OUT_IDS)
         for before, after in zip(scene['components'], out['components']):
             for key in ('roi_px', 'wall_rect_px'):
                 if before[key]:
@@ -112,6 +148,69 @@ class Contract(unittest.TestCase):
         for bad in ('[1]', 'sorry', ''):
             with self.assertRaises(ValueError):
                 reader.parse_json(bad)
+
+
+class ThePrompt(unittest.TestCase):
+    """What the reading prompt asks for, and that the synthetic scene the other tests use is what it asks for."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = reader.PROMPT.read_text(encoding='utf-8')
+
+    def test_it_asks_for_spread_corners_all_used_one_assumption_and_scale_checks(self):
+        text = self.text
+        corners = text.split('## corner_points')[1].split('## scale_checks')[0]
+        self.assertIn('(8 to 10)', text)
+        self.assertIn('`fit` is required on every point; write `null`', corners)                # the key is there on every point, null by default
+        self.assertIn('All of your points are used in the fit', corners)
+        self.assertIn('leaves each corner out in turn', corners)                                # the model is told how its clicks are checked ...
+        self.assertIn('spread the corners', corners)                                            # ... and what that asks of it
+        self.assertIn('never click the same corner twice', corners)
+        self.assertIn('at least 6', corners)                                                    # the floor the reader enforces
+        self.assertIn('exactly ONE plausible value', text)                                      # one assumed dimension, never all of W, D and H
+        self.assertIn('At most ONE dimension is ever assumed', text)
+        self.assertIn('never W and D together', text)
+        self.assertIn('Write "1.1" in `schema_version`', text)
+        scale = text.split('## scale_checks')[1].split('## scopes')[0]
+        for part in ('cafe table', 'counter', 'chair', '`tv`', 'assumed dimension'):
+            self.assertIn(part, scale)
+
+    def test_it_no_longer_asks_for_check_corners(self):
+        for gone in ('exactly TWO', 'give 6 or 7', 'only one of them a check', 'independent checks', 'Write `true`'):
+            self.assertNotIn(gone, self.text)
+
+    def test_it_no_longer_promises_what_no_code_does(self):
+        self.assertNotIn('you will be told', self.text.lower())
+        self.assertNotIn('task message', self.text)                                             # nothing sends a "task message" about sizes or held-out points
+        self.assertNotIn('assume plausible values', self.text)                                  # the old "assume W, D and H" instruction
+        self.assertNotIn('put them in `known`', self.text)
+
+    def test_the_schema_the_model_sees_does_not_contradict_it(self):
+        """The schema's descriptions travel to the model with the schema (strict formats and the JSON-mode instructions alike)."""
+        point = reader.provider_schema()['properties']['corner_points']
+        seen = f"{point.get('description') or ''} {point['items']['properties']['fit'].get('description') or ''}"
+        self.assertNotRegex(seen, r'(?i)mark (two|2)\b')                                        # the prompt asks for no check corners ...
+        self.assertNotRegex(seen, r'(?i)\b(exactly|two|2) check')
+        self.assertIn('used in the fit', seen)                                                   # ... and the flag says what null means
+
+    def test_it_describes_the_grid_that_is_drawn(self):
+        self.assertIn('all four edges', self.text)
+        self.assertIn('`x,y`', self.text)
+
+    def test_the_synthetic_scene_follows_it(self):
+        scene = fixtures.scene()
+        points = scene['corner_points']
+        self.assertTrue(8 <= len(points) <= 10)
+        self.assertTrue(all('fit' in p for p in points))
+        self.assertTrue(all(p['fit'] is None for p in points))                                  # the key is there on every point, null: all points are fitted
+        self.assertEqual(len({tuple(p['xyz']) for p in points}), len(points))                   # no corner is clicked twice
+        stated = [k for k, v in scene['known'].items() if v is not None]
+        self.assertEqual(stated, scene['assumed'])                                              # nothing is stated on this picture: the one value is assumed
+        self.assertEqual(len(stated), 1)
+        self.assertEqual(scene['schema_version'], '1.1')
+        used = {t for p in points for t in p['xyz']}
+        self.assertTrue({'F', 'H'} <= used and used & {'W/2', '-W/2'} and used & {'D/2', '-D/2'})   # the points fix every dimension
+        self.assertEqual(engine.validate_scene(scene), [])
 
 
 class ReadScene(unittest.TestCase):
@@ -190,6 +289,51 @@ class ReadScene(unittest.TestCase):
 
     def turns(self, body):
         return body['messages'][1:] if self.style != 'responses' else body['input']
+
+    def test_a_reply_without_the_check_flags_is_sent_back_even_though_the_compiler_would_accept_it(self):
+        mock, config = self.run_with(['no_fit_keys', 'good'])
+        result = self.read(config)
+        self.assertEqual(result['attempts'], 2)
+        complaint = self.turns(mock.requests[1]['body'])[2]['content']
+        self.assertIn("'fit' is a required property", complaint)
+        self.assertIn('corner_points.floor_bl.fit', complaint)
+        self.assertTrue(all('fit' in p for p in result['scene']['corner_points']))
+        old = fixtures.old_scene()
+        self.assertEqual(engine.validate_scene(old), [])                                         # the compiler alone would have let such a file through
+        self.assertIn('write null', complaint)                                                   # the repair asks for what the prompt asks for
+        self.assertNotIn('independent check', complaint)
+
+    def test_a_reading_with_too_few_corners_is_sent_back_with_a_plain_request(self):
+        mock, config = self.run_with(['few_corners', 'good'])
+        result = self.read(config)
+        self.assertEqual(result['attempts'], 2)
+        complaint = self.turns(mock.requests[1]['body'])[2]['content']
+        self.assertIn('CORNERS corner_points: only 5 corner points were given', complaint)
+        self.assertIn('at least 6 clearly visible corners', complaint)
+        self.assertGreaterEqual(len(result['scene']['corner_points']), reader.MIN_CORNERS)
+
+    def test_the_corner_rules_are_light_a_count_and_the_key_nothing_about_how_many_are_held_out(self):
+        scene = fixtures.scene()
+        self.assertEqual((reader.missing_fit_flags(scene), reader.too_few_corners(scene)), ([], []))
+        for ids in ([], fixtures.HELD_OUT_IDS, [c[0] for c in fixtures.CORNERS[:6]]):
+            held = fixtures.held_out_scene(ids)
+            self.assertEqual((reader.missing_fit_flags(held), reader.too_few_corners(held)), ([], []), ids)     # any number of fit:false is not the reader's business
+        six = copy.deepcopy(scene)
+        six['corner_points'] = six['corner_points'][:reader.MIN_CORNERS]
+        self.assertEqual(reader.too_few_corners(six), [])                                        # six is enough
+        five = copy.deepcopy(scene)
+        five['corner_points'] = five['corner_points'][:reader.MIN_CORNERS - 1]
+        (problem,) = reader.too_few_corners(five)
+        self.assertEqual((problem['code'], problem['where']), ('CORNERS', 'corner_points'))
+        self.assertEqual(reader.too_few_corners({}), [])                                         # not a list: the schema check reports that
+
+    def test_a_reading_that_holds_corners_out_is_not_sent_back(self):
+        mock = MockOpenAI(fixtures.held_out_scene(), ['good']).start()
+        self.addCleanup(mock.stop)
+        config = Config(mock.base_url, 'test-model', KEY, style=self.style, retry_wait=0)
+        result = self.read(config)
+        self.assertEqual(result['attempts'], 1)
+        self.assertEqual([p['id'] for p in result['scene']['corner_points'] if p['fit'] is False], fixtures.HELD_OUT_IDS)
 
     def test_text_that_is_not_json_is_repaired_the_same_way(self):
         mock, config = self.run_with(['not_json', 'good'])
@@ -361,11 +505,30 @@ class ThroughTheServer(unittest.TestCase):
         st = self.wait(job)
         self.assertEqual(st['steps']['compile']['state'], 'done', st['steps']['compile'])
         self.assertEqual(st['steps']['compile']['detail']['fit']['status'], 'fitted')
+        detail = st['steps']['compile']['detail']
+        self.assertEqual(detail['quality_gate'], {'status': 'pass', 'reasons': []})          # what the reading asks for (8 corners, all fitted, one assumption) passes
+        self.assertEqual((detail['fit']['n_check'], detail['fit']['n_fit']), (0, 8))         # nothing is withheld from the fit
+        self.assertEqual(detail['fit']['scale_checks'], [])                                  # the keys the page reads are all there
+        scene = json.loads((Path(self._tmp.name) / 'jobs' / job / 'scene.json').read_text(encoding='utf-8'))
+        self.assertEqual([p['fit'] for p in scene['corner_points']], [None] * 8)             # the stored scene keeps the key, null on every point
         for path in Path(self._tmp.name).rglob('*'):
             if path.is_file() and path.suffix in ('.json', '.txt', '.md', '.log'):
                 self.assertNotIn(KEY, path.read_text(encoding='utf-8', errors='ignore'), str(path))
         self.assertNotIn(KEY, json.dumps(self.api.call('GET', '/api/health')[1]))
         self.assertNotIn(KEY, json.dumps(st))
+
+    def test_a_reading_with_one_corner_far_off_compiles_and_says_review(self):
+        self.mock.script[:] = ['review']
+        self.api.call('POST', '/api/config', {'openai_api_key': KEY})
+        job = self.new_job()
+        self.assertEqual(self.api.call('POST', f'/api/jobs/{job}/read', {'mode': 'openai', 'consent': True})[0], 202)
+        self.assertEqual(self.wait(job)['steps']['scene']['state'], 'done')
+        self.assertEqual(self.api.call('POST', f'/api/jobs/{job}/compile', {})[0], 202)
+        st = self.wait(job)
+        self.assertEqual(st['steps']['compile']['state'], 'done', st['steps']['compile'])        # the server compiles it; the page decides about the render
+        detail = st['steps']['compile']['detail']
+        self.assertEqual(detail['quality_gate']['status'], 'review')
+        self.assertIn(detail['fit']['status'], ('high_residual', 'check_failed'))             # the engine says which; it is not 'fitted'
 
     def test_a_failed_reading_is_an_error_on_the_card_and_keeps_the_job_usable(self):
         self.mock.script[:] = ['http401']

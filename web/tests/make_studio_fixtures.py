@@ -1,4 +1,5 @@
-"""Write the synthetic inputs of the studio smoke test: a picture, a good scene description and a broken one.
+"""Write the synthetic inputs of the studio smoke test: a picture, a good scene description and a broken one. (The reading whose
+quality gate says "review" is not a file: the stand-in service writes it from scene_fixture.review_scene().)
 
     python web/tests/make_studio_fixtures.py <out_dir>
 """
@@ -8,10 +9,10 @@ from pathlib import Path
 import sys
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[1] / 'booth-image-to-model' / 'tests'))
+sys.path.insert(0, str(HERE))
 from PIL import Image, ImageDraw
 
-import test_draft_compile as fixtures   # noqa: E402
+import scene_fixture as fixtures   # noqa: E402
 
 
 def write(path, data):

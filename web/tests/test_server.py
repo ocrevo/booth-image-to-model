@@ -21,12 +21,13 @@ from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
+sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO / 'web' / 'server'))
 sys.path.insert(0, str(REPO / 'booth-image-to-model' / 'tests'))
 from PIL import Image
 
 import engine                                        # noqa: E402
-import test_draft_compile as fixtures                # noqa: E402  (synthetic scene, camera and pixel helpers)
+import scene_fixture as fixtures                      # noqa: E402  (the synthetic scene as a reader writes it now; camera and pixel helpers)
 from server import Config, create_server             # noqa: E402
 
 

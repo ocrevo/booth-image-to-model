@@ -88,6 +88,26 @@ def read_step(jobs, job_id, config):
             'detail': {'model': config.model, 'attempts': result['attempts'], 'usage': usage, 'seconds': result['seconds']}}
 
 
+# What the compile step passes on about the camera fit. The engine writes more; a key an older engine lacks is None.
+# loo_* are None (and outliers empty) when the engine judged the leave-one-out check unreliable (loo_reliable false); scale_checks is
+# a list of {id, expected_m, measured_m, ratio, ok}; ambiguity_hint is a real ambiguity hint only, hint the re-click advice.
+FIT_KEYS = ('status', 'rms_px', 'max_px', 'worst_points', 'warnings', 'ambiguity_hint', 'hint', 'limits',
+            'n_fit', 'n_check', 'check_points', 'check_median_px', 'check_max_px',
+            'loo_reliable', 'loo_errors_px', 'loo_median_px', 'loo_max_px', 'outliers', 'scale_checks')
+
+
+def _quality_gate(report, report_file):
+    """The engine's verdict on the fit, {'status': 'pass' | 'review', 'reasons': [...]}, passed on unchanged. The server never blocks
+    on it: the page decides whether to go on to the render. None when the engine reports none (an engine without the gate)."""
+    gate = report.get('quality_gate')
+    if gate is None and Path(report_file).is_file():
+        try:
+            gate = _read(report_file).get('quality_gate')
+        except (OSError, ValueError):
+            gate = None
+    return gate if isinstance(gate, dict) else None
+
+
 def compile_step(jobs, job_id):
     d, status = jobs.path(job_id), jobs.status(job_id)
     if not (d / 'scene.json').is_file():
@@ -104,9 +124,11 @@ def compile_step(jobs, job_id):
         engine.draw_overlay(fit, image, d / 'overlay.png')
     except Exception as ex:                                       # the overlay is a check aid; its failure must not hide the compile
         overlay_note = f'{type(ex).__name__}: {ex}'
+    check_ids = {c.get('id') for c in report['fit'].get('check_points') or [] if isinstance(c, dict)}
     detail = {'status': report['status'], 'components': report['components_built'], 'valid': report['valid'],
-              'fit': {k: report['fit'].get(k) for k in ('status', 'rms_px', 'max_px', 'worst_points', 'warnings', 'ambiguity_hint')},
-              'points': [{'id': p['id'], 'err_px': p['err_px']} for p in fit.get('points', [])],
+              'fit': {k: report['fit'].get(k) for k in FIT_KEYS},
+              'quality_gate': _quality_gate(report, d / 'compile' / 'compile_report.json'),
+              'points': [{'id': p['id'], 'err_px': p['err_px'], 'check': p['id'] in check_ids} for p in fit.get('points', [])],
               'dropped': report['dropped'], 'adjustments': report['adjustments'][:40], 'adjustments_total': len(report['adjustments']),
               'assumed': report['assumed'][:60], 'assumed_total': len(report['assumed']), 'warnings': report['warnings'][:40],
               'overlay': 'overlay.png' if (d / 'overlay.png').is_file() else None, 'overlay_error': overlay_note}

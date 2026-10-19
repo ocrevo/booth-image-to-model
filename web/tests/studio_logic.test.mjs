@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { COPY, BANNED, findBanned, fill, mainStrings } from '../app/js/studio_copy.js';
-import { deriveView, describeError, estimate, expectedText, formatElapsed, plainFit, DEFAULT_SECONDS, HD_MAX_PIXELS } from '../app/js/studio_logic.js';
+import { deriveView, describeError, estimate, expectedText, formatElapsed, gateOf, nextChain, plainFit, scaleCheckFailed, DEFAULT_SECONDS, HD_MAX_PIXELS } from '../app/js/studio_logic.js';
 
 const idle = () => ({ state: 'idle', message: '' });
 function job(steps = {}, { spec = false, scene = false, width = 960, height = 600, origin = null } = {}) {
@@ -16,6 +16,17 @@ function job(steps = {}, { spec = false, scene = false, width = 960, height = 60
 }
 const ctx = (extra = {}) => ({ health: { blender: 'blender.exe', openai: { configured: true, model: 'm' } }, consent: true, durations: {}, now: 1000, ...extra });
 const fitted = { fit: { status: 'fitted', rms_px: 0.5, max_px: 1, worst_points: [{ id: 'floor_bl', err_px: 1 }] }, components: 62, dropped: [], assumed_total: 0 };
+// What the compile step reports about the independent checks (quality_gate is the engine's verdict, passed on unchanged). The usual
+// reading has every corner in the fit (n_check 0) and each corner predicted from the others (leave-one-out); the scale checks agree.
+const checks = { n_fit: 8, n_check: 0, check_points: [], check_median_px: null, check_max_px: null,
+  loo_reliable: true, loo_errors_px: { floor_bl: 0.1 }, loo_median_px: 0.1, loo_max_px: 0.2, outliers: [], scale_checks: [] };
+// Corners held out by hand: too few left in the fit for leave-one-out, but the held-out corners are the independent check.
+const heldOut = { n_fit: 6, n_check: 2, check_points: [{ id: 'top_br', err_px: 0.3 }, { id: 'floor_fl', err_px: 0.2 }], check_median_px: 0.25, check_max_px: 0.3,
+  loo_reliable: false, loo_errors_px: null, loo_median_px: null, loo_max_px: null, outliers: [] };
+const passing = { ...fitted, fit: { ...fitted.fit, ...checks }, quality_gate: { status: 'pass', reasons: [] } };
+const reviewing = (fit = {}, reasons = ['the engine words its own reason here']) => ({
+  ...fitted, fit: { ...fitted.fit, ...checks, ...fit }, quality_gate: { status: 'review', reasons } });
+const offScale = [{ id: 'table_height', expected_m: 1.5, measured_m: 0.74, ratio: 0.49, tolerance: 0.15, ok: false }];
 
 test('the main path has no engineering words', () => {
   const strings = [...mainStrings()];
@@ -265,4 +276,106 @@ test('after an edit the render is stale: marked, still downloadable, not offered
 test('the copy has a name for every step mark', () => {
   assert.equal(COPY.main.stepNames.length, 4);
   assert.deepEqual(deriveView(job(), ctx()).bar.map((b) => b.label), COPY.main.stepNames);
+});
+
+test('the quality verdict: read as the engine sends it, ignored when it is not one', () => {
+  assert.deepEqual(gateOf(passing), { status: 'pass', reasons: [] });
+  assert.deepEqual(gateOf(reviewing()), { status: 'review', reasons: ['the engine words its own reason here'] });
+  assert.equal(gateOf(fitted), null);                                                      // an engine without the verdict: nothing is held back
+  assert.equal(gateOf({ quality_gate: { status: 'maybe' } }), null);
+  assert.equal(gateOf(null), null);
+  assert.deepEqual(gateOf({ quality_gate: { status: 'review' } }), { status: 'review', reasons: [] });
+});
+
+test('a passing check keeps the plain "ready" line; held-out corners that agree are an independent check on their own', () => {
+  assert.deepEqual(plainFit(passing), [{ tone: 'good', text: 'Model ready, 62 parts' }]);
+  const byHand = { ...fitted, fit: { ...fitted.fit, ...heldOut }, quality_gate: { status: 'pass', reasons: [] } };
+  assert.deepEqual(plainFit(byHand), [{ tone: 'good', text: 'Model ready, 62 parts' }]);
+});
+
+test('a review says why in plain words, from the fit keys, and never calls the model ready', () => {
+  const failed = plainFit(reviewing({ status: 'check_failed', loo_median_px: 9, loo_max_px: 30 }));      // the corners do not predict each other
+  assert.equal(failed[0].tone, 'info');
+  assert.match(failed[0].text, /Compare it with the picture/);
+  assert.equal(failed[1].tone, 'warn');
+  assert.match(failed[1].text, /do not agree with each other well enough/);
+  assert.equal(failed[1].look, 'align');
+  const failedHeld = plainFit(reviewing({ ...heldOut, status: 'check_failed', check_median_px: 20, check_max_px: 31 }));
+  assert.deepEqual(failedHeld.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyChecks]);   // held-out corners that miss: the same plain note
+  const outlier = plainFit(reviewing({ status: 'check_failed', outliers: ['top_fl'] }));
+  assert.deepEqual(outlier.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyOutlier]);     // named corners: the more specific note only
+  assert.match(outlier.find((l) => l.tone === 'warn').text, /may be in the wrong place/);
+  const scale = plainFit(reviewing({ scale_checks: offScale }));                                      // the corners agree, the scale does not
+  assert.deepEqual(scale.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyScale]);
+  assert.match(scale.find((l) => l.tone === 'warn').text, /table, counter or chair/);
+  assert.equal(scale[0].tone, 'info');                                                                // not "Model ready"
+  const bothWrong = plainFit(reviewing({ outliers: ['top_fl'], scale_checks: offScale }));
+  assert.deepEqual(bothWrong.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyOutlier, COPY.main.gateWhyScale]);
+  const few = plainFit(reviewing({ n_fit: 6, loo_reliable: false, loo_errors_px: null, loo_median_px: null, loo_max_px: null }));   // nothing independent was possible
+  assert.deepEqual(few.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyNoCheck]);
+  assert.match(few.find((l) => l.tone === 'warn').text, /Too few corners/);
+  const olderEngine = plainFit(reviewing({ n_check: undefined, loo_median_px: undefined }));            // an engine that reports neither: say nothing it cannot know
+  assert.deepEqual(olderEngine.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyGeneric]);
+  const unknownWhy = plainFit(reviewing());                                                // fitted, numbers present, verdict review: the generic line
+  assert.equal(unknownWhy.filter((l) => l.tone === 'warn').length, 1);
+  assert.match(unknownWhy[1].text, /could not confirm that the model matches the picture/);
+  const ambiguous = plainFit(reviewing({ status: 'ambiguous' }));                         // the size line already says it: no second, generic one
+  assert.deepEqual(ambiguous.map((l) => l.look), ['data']);
+  const off = plainFit(reviewing({ status: 'high_residual', rms_px: 6, max_px: 9, worst_points: [{ id: 'a', err_px: 9 }] }));
+  assert.equal(off.filter((l) => l.tone === 'warn').length, 1);
+  for (const line of [...failed, ...failedHeld, ...outlier, ...scale, ...bothWrong, ...few, ...olderEngine, ...unknownWhy, ...ambiguous, ...off]) {
+    assert.deepEqual(findBanned(line.text), [], line.text);
+  }
+  for (const key of ['gateWhyChecks', 'gateWhyOutlier', 'gateWhyScale', 'gateWhyNoCheck', 'gateWhyGeneric', 'gateHeldTitle', 'gateHeld', 'renderAnyway', 'startAgain']) {
+    assert.deepEqual(findBanned(COPY.main[key]), [], key);
+  }
+  assert.doesNotMatch(JSON.stringify([failed, outlier, scale, few]), /px|leave-one-out|check_failed|the engine words/);    // the engine's own wording stays in the Advanced view
+});
+
+test('a failed scale check is a failed scale check, however the engine spells the entry', () => {
+  assert.equal(scaleCheckFailed({ scale_checks: offScale }), true);
+  assert.equal(scaleCheckFailed({ scale_checks: [{ id: 'a', ok: true }, { id: 'b', ok: false, error: 'cannot be measured' }] }), true);   // one that could not be measured is not an agreement
+  assert.equal(scaleCheckFailed({ scale_checks: [{ id: 'a', ok: true }] }), false);
+  for (const fit of [{ scale_checks: [] }, { scale_checks: null }, {}, null, undefined]) assert.equal(scaleCheckFailed(fit), false);
+});
+
+test('the pause promises nothing the studio cannot do: render anyway, or start again', () => {
+  const text = COPY.main.gateHeld;
+  assert.doesNotMatch(text, /\b(fix|correct|adjust|repair|edit)\b/i);                                  // the studio cannot move a corner
+  assert.match(text, /render anyway/i);
+  assert.match(text, /start again with another picture or your own file/i);
+  assert.equal(COPY.main.renderAnyway, 'Render anyway');
+  assert.equal(COPY.main.startAgain, 'Start again');
+  assert.deepEqual(findBanned(text), []);
+});
+
+test('one-click render: the model first, then the render only when the checks agree', () => {
+  const done = { state: 'done', message: '' };
+  const model = (gate, over = {}) => job({ scene: done, compile: { state: 'done', detail: gate }, ...over }, { spec: true });
+  assert.deepEqual(nextChain(model(passing)), { action: 'render' });
+  assert.deepEqual(nextChain(model(fitted)), { action: 'render' });                        // no verdict from the engine: as before, go on
+  assert.deepEqual(nextChain(model(reviewing())), { action: 'hold' });                     // review: stop before the render
+  assert.deepEqual(nextChain(job({ scene: { state: 'running', started: 1 }, compile: { state: 'queued' } })), { action: 'wait' });
+  assert.deepEqual(nextChain(job({ scene: done, compile: { state: 'running', started: 1 } })), { action: 'wait' });
+  assert.deepEqual(nextChain({ ...model(passing), busy: 'compile' }), { action: 'wait' });
+  assert.deepEqual(nextChain(job({ scene: { state: 'error', message: 'x' } })), { action: 'stop' });
+  assert.deepEqual(nextChain(job({ scene: done, compile: { state: 'error', message: 'x' } })), { action: 'stop' });
+  assert.deepEqual(nextChain(job()), { action: 'stop' });
+  assert.deepEqual(nextChain(null), { action: 'stop' });
+});
+
+test('a paused one-click render shows the pause and nothing else changes; a finished render ends it', () => {
+  const compile = { state: 'done', detail: reviewing({ status: 'check_failed' }) };
+  const base = job({ scene: { state: 'done' }, compile }, { spec: true });
+  const held = deriveView(base, ctx({ held: true }));
+  assert.deepEqual([held.card.kind, held.card.gate, held.card.held], ['model', 'review', true]);
+  assert.deepEqual([held.render.can, held.canExportGlb], [true, true]);                     // the render, the quick check and the export stay reachable
+  const free = deriveView(base, ctx());
+  assert.deepEqual([free.card.gate, free.card.held], ['review', false]);                    // a review verdict alone only warns: nothing was paused
+  assert.equal(free.card.fit.some((l) => l.tone === 'warn'), true);
+  const pass = deriveView(job({ scene: { state: 'done' }, compile: { state: 'done', detail: passing } }, { spec: true }), ctx({ held: true }));
+  assert.deepEqual([pass.card.gate, pass.card.held], ['pass', false]);                      // nothing to decide when the checks agree
+  const files = { blend: 'b/booth.blend', client: 'b/client_render.png' };
+  const rendered = deriveView(job({ scene: { state: 'done' }, compile, build: { state: 'done', detail: { files } } }, { spec: true }), ctx({ held: true }));
+  assert.equal(rendered.card.held, false);                                                  // rendered anyway: the pause is over
 });

@@ -41,12 +41,34 @@ What each step does underneath:
 | 4 Render | **Render**, optionally **Quick check first (about 15 sec)** | Blender renders the client picture and a second view; the `.glb` is exported; downloads and "open in Blender" appear |
 
 The card on the right always names the one next action. Engineering details are in **Advanced view**: the fit
-overlay, corner errors, Blender's four-pane check sheet, dropped and assumed parts, design hints and every step's log.
+overlay, the quality check and the corner errors (each corner's error when predicted from the others; corners held out by hand are
+marked), Blender's four-pane check sheet, dropped and assumed parts, design hints and every step's log.
+
+**Generate and render** reads the picture and builds the model first. If the engine's quality check says the camera and scale are
+not trustworthy enough (`quality_gate.status` is `review`: the corner fit is poor or ambiguous, the corners disagree with each other
+when each is predicted from the others, a table, counter or chair in the picture comes out at the wrong height (`scale_checks`), or
+there are too few corners to check anything), the one-click chain stops before the render. The card says why in plain words and
+offers **Render anyway**, or **Start again** with another picture or your own file. The studio cannot move a corner yet
+(corner-point correction is on the roadmap), so it does not promise to fix a model; you can still compare it with the picture or run
+the quick check first. The server never blocks on the verdict: it passes `quality_gate` and the numbers behind it (`fit.n_fit`,
+`n_check`, `loo_*` with `loo_reliable`, `outliers`, `scale_checks`, `hint`, `limits`) through in the compile step's detail, and the
+page decides.
 
 ## Automatic reading with a large model
 
 Any OpenAI-compatible service that accepts images works. The call is plain HTTP in `server/reader_openai.py`; there is no SDK.
 The reply is checked with the same validator the compiler uses and sent back for at most two repairs.
+
+What the reading prompt (`server/prompts/read_scene.md`) asks for, so the fit can be trusted rather than merely agree with itself:
+two pictures (the plain one and a copy with a pixel grid labelled on all four edges and at a few crossings inside), 8 to 10 corner
+points spread over the booth, all used in the fit (`fit: null` on every point; the engine predicts each corner from the others by
+leave-one-out and names the ones it cannot predict, when enough corners are left for that to be reliable), at most one assumed
+dimension (preferably the height; width and depth are worked out from the corners), and `scale_checks` for visible tables and
+counters, which test that one assumed dimension. The scene description version is 1.1; a file without `fit` flags (written earlier)
+still loads, but a *reading* that leaves the flag out, or gives fewer than 6 corner points, is sent back for a repair. Holding
+corners out of the fit (`fit: false`) is still possible in a file written by hand: they are measured but not fitted, which is
+useful with 11 or more corners; the reading prompt does not ask for it, because withholding points from an 8-corner fit costs
+accuracy and leave-one-out already gives an independent check.
 
 ```bash
 export OPENAI_API_KEY=...                      # or paste the key on the page; it stays in the server's memory only
@@ -89,8 +111,9 @@ The presets follow each provider's published API. In this repository they are te
 - After a server restart, steps that were running show as errors.
 - The live model in the browser is schematic (no reflections, simplified text and patterns). The rendered pictures show the real
   light and materials.
-- Reading quality depends on the model you use. The Advanced view shows how well the camera fit, so a bad reading is visible
-  before anything is built.
+- Reading quality depends on the model you use. The quality check predicts each corner from the others and compares visible tables, counters and
+  chairs with their typical heights, so a bad reading is flagged (and the one-click chain pauses) before the render; the Advanced
+  view shows the numbers. Dimensions are estimates from one picture, not measurements.
 
 ## The standalone editor
 
@@ -128,7 +151,7 @@ tests use Chrome, Chromium or Edge (`--chrome <path>` or `$CHROME`).
 ```bash
 cd web
 npm test              # geometry and camera parity with Python, edit operations, the studio's decisions and wording
-npm run test:server   # every studio step through the real HTTP API; the reader against a stand-in (set BLENDER_EXE for renders)
+npm run test:server   # every studio step through the real HTTP API; the reader and the quality check against a stand-in (set BLENDER_EXE for renders)
 npm run smoke         # headless browser drives the standalone editor
 npm run smoke:studio  # headless browser drives the studio end to end (Blender steps when Blender is found)
 python tests/make_geometry_reference.py   # after changing geometry.py

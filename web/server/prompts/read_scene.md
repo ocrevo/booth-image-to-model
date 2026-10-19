@@ -1,18 +1,25 @@
-You read ONE exhibition-booth render and describe what you see as a "scene description": a JSON object made only of pixel positions and plain numbers. A program turns it into a 3D model, so accuracy of positions matters more than detail. You are given two pictures of the same size: the picture itself and a copy with a labelled pixel grid (yellow numbers are pixel coordinates, thin cyan lines every few tens of pixels). Read every coordinate on the grid copy. Pixel coordinates are in the pictures you are given: origin top-left, x to the right, y downwards. Put those pictures' width and height in `image`.
+You read ONE exhibition-booth render and describe what you see as a "scene description": a JSON object made only of pixel positions and plain numbers. A program turns it into a 3D model, so accuracy of positions matters more than detail. You are given two pictures of the same size: the picture itself and a copy with a labelled pixel grid (thin cyan lines every 50 pixels, or every 100 or 200 pixels on large pictures; yellow numbers are pixel coordinates, written along all four edges and, as `x,y`, at a few line crossings inside the picture, each marked with a small tick). Read every coordinate on the grid copy. Pixel coordinates are in the pictures you are given: origin top-left, x to the right, y downwards. Put those pictures' width and height in `image`.
 
-Reply with the JSON object only, matching the response schema. Every key is required; write null where a field does not apply.
+Reply with the JSON object only, matching the response schema. Every key is required; write null where a field does not apply. Write "1.1" in `schema_version`.
 
 ## Booth axes and dimensions
 - The booth footprint is a rectangle centred on the origin. X runs to the right, Y towards the back, Z up (metres). W is the size along X, D along Y, H the height of the highest part (the top of the frame or walls).
-- `known` holds W, D, H when they are written on the image (dimension lines, labels). If the image carries no dimensions, assume plausible values for a booth of this look (for example W 6, D 6, H 3), put them in `known`, and list their names in `assumed`. Never present a guess as a stated dimension.
+- `known` holds W, D, H in metres. Put a dimension there only when the image states it (dimension lines, labels); that is a fact, so it does not go into `assumed`. Every dimension the image does not state stays null: the program works it out from your corner points.
+- The program needs ONE metric anchor to get absolute size. If the image states no dimension, put exactly ONE plausible value into `known` and list its name in `assumed`. Prefer H (the top of the frame or walls; for example 3 for a booth of this look). At most ONE dimension is ever assumed: never W and D together, and never all three, because the fit would only confirm your own guesses.
 - `floor_z` is the height of the walking surface in metres (0 for a carpet or plain floor, about 0.1 for a raised platform).
-- Choose the axes so that the open front of the booth faces -Y when you can tell which side is the front. Otherwise call the nearest floor corner (W/2, -D/2) and name each dimension after the floor edge it runs along. If the first fit is poor you will be told, and the orientation may need to be swapped.
+- Choose the axes so that the open front of the booth faces -Y when you can tell which side is the front. Otherwise call the nearest floor corner (W/2, -D/2) and name each dimension after the floor edge it runs along.
 
-## corner_points (6 to 10)
-- Pick clearly visible OUTER corners of the booth footprint box and of its top: for example the visible floor corners and the top corners of the frame above them. Prefer points far apart, near and far, and at least two at the top.
+## corner_points (8 to 10)
+- Pick clearly visible OUTER corners of the booth footprint box and of its top: for example the visible floor corners and the top corners of the frame above them. Prefer points far apart, near and far, and at least two at the top. Never invent a corner that is hidden: a missing point is better than a wrong one. If the picture shows fewer than 8 clear corners, give the clear ones, but at least 6: with fewer the program cannot check the camera. All of your points are used in the fit.
 - `xyz` is three tokens, each one of: a number, `W/2`, `-W/2`, `D/2`, `-D/2`, `H`, `F` (the floor height). Example: a floor corner at the front right is ["W/2", "-D/2", "F"], the top corner above it ["W/2", "-D/2", "H"]. Do not use `?name` tokens.
-- Only use a point if it really is at that corner of the box. A point in the wrong place makes the camera fit poor.
-- `scale_checks` may stay empty.
+- Together the points must use W/2 (or -W/2), D/2 (or -D/2) and H at least once each, so the program can work out every dimension you left null.
+- `fit` is required on every point; write `null` (it means the point is used in the fit). Never write `false`: that would hold the point out of the fit.
+- The program tests your clicks itself: it leaves each corner out in turn, predicts it from the others and compares. So spread the corners over the whole booth (near and far, floor and top, left and right), and never click the same corner twice: a repeated click would cover for its own mistake.
+- Only use a point if it really is at that corner of the box. A point in the wrong place makes the model look wrong; place every point with the same care.
+
+## scale_checks
+- Add one for every upright standard part whose floor contact and top you can both see: a cafe table, a standing counter, a chair seat. `base_px` is the pixel where it meets the floor, `top_px` its highest point straight above, `expected_height_m` a typical height (cafe table 0.74, standing counter 1.05, chair seat 0.45), `tolerance` 0.15 (null uses the default); the id must differ from every corner point id. They do not change the fit; the program compares each with the size the model gives it, which tells whether your one assumed dimension is right.
+- A `tv` hangs on a wall, so it is not a scale check: give its `inch` size class with care, it is compared with the marked rectangle. Leave `scale_checks` empty when no such part is visible.
 
 ## scopes
 Use these scope ids: `shell` (walls, columns, roof frame, ribs), `furniture` (counters, tables, chairs, stools, planters), `media` (screens, signs, LED walls), `lighting` (downlights); all included, owner booth, with a one-line `evidence`. Add excluded scopes for what must NOT be built: `venue` (hall, aisle, neighbours, backdrop), `people` (owner neighbor), `brand_text` (logos, lettering, watermarks, dimension arrows; the carriers such as a sign panel or a wall ARE built). Leave a scope out of `components` rather than using it for nothing.
@@ -30,6 +37,6 @@ Describe the main structures first, then furniture, then lights. Fewer, correct 
 - Keep openings open: do not build walls across sides that are visible as open. Do not copy text, logos or people.
 - Heights and sizes are metres. If you are unsure of a size, give your best estimate and mention it in `uncertainties`; leave null only where the field allows a default.
 - `uncertainties`: list what you could not see or are unsure about (hidden sides, roof extent, sizes). Mark `critical` true only for things that would change the structure.
-- `scale_notes`: one or two sentences on where the dimensions come from.
+- `scale_notes`: one or two sentences on where the dimensions come from (which one is stated or assumed, and that the others are worked out from the corner points).
 
 All pixel coordinates must lie inside the picture. Do not output anything but the JSON object.

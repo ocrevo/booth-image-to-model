@@ -78,6 +78,33 @@ def scale_scene_pixels(scene, factor, width, height):
     return out
 
 
+MIN_CORNERS = 6                    # fewer clicks leave nothing to cross-check the camera with (the prompt asks for 8 to 10)
+
+
+def missing_fit_flags(scene):
+    """Errors for corner points that lack the `fit` key. The compiler accepts a scene without it (a file written before 1.1 means
+    "fit = null"), but a reading is asked for the flag on every point, and a service that does not enforce the schema (JSON mode)
+    would otherwise leave it out. How many points are held out of the fit (`fit: false`) is not enforced: a reading is asked to
+    write null everywhere, and the engine checks the clicks itself by leave-one-out."""
+    points = scene.get('corner_points')
+    if not isinstance(points, list):
+        return []
+    return [{'code': 'SCHEMA', 'where': f"corner_points.{p.get('id')}.fit",
+             'message': "'fit' is a required property of every corner point: write null (the point is used in the fit)"}
+            for p in points if isinstance(p, dict) and 'fit' not in p]
+
+
+def too_few_corners(scene):
+    """A repair request when fewer than MIN_CORNERS corner points were given: the engine cannot check such a reading, so another
+    look at the picture is cheaper than a model that is probably wrong. Only the count is judged, never where the points are."""
+    points = scene.get('corner_points')
+    if not isinstance(points, list) or len(points) >= MIN_CORNERS:
+        return []
+    return [{'code': 'CORNERS', 'where': 'corner_points',
+             'message': f'only {len(points)} corner points were given; give at least {MIN_CORNERS} clearly visible corners (8 to 10 is best), '
+                        'spread over the floor and the top, so the camera can be checked. Do not invent a corner you cannot see'}]
+
+
 def parse_json(text):
     """The model's reply as an object; tolerates a code fence around it."""
     body = text.strip()
@@ -258,7 +285,7 @@ def read_scene(image_path, config, work_dir, timeout=900):
             errors = [{'code': 'JSON', 'where': '(reply)', 'message': f'the reply is not a JSON object: {ex}'}]
         if scene is not None:
             scene['image'] = {'width': sent[0], 'height': sent[1]}                # the size is known; do not trust the model with it
-            errors = engine.validate_scene(scene)
+            errors = missing_fit_flags(scene) + too_few_corners(scene) + engine.validate_scene(scene)
         log.append({'attempt': attempt + 1, 'errors': len(errors), 'usage': reply['usage']})
         if not errors:
             break

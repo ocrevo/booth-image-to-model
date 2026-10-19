@@ -30,7 +30,7 @@ import engine                                        # noqa: E402
 import reader_openai as reader                       # noqa: E402
 import run                                           # noqa: E402
 import steps                                         # noqa: E402
-import test_draft_compile as fixtures                # noqa: E402
+import scene_fixture as fixtures                      # noqa: E402
 from jobs import Busy, Jobs, StepError               # noqa: E402
 from mock_openai import MockOpenAI                   # noqa: E402
 from safety import clean_key, clean_relative, redact  # noqa: E402

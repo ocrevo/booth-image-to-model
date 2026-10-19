@@ -6,8 +6,9 @@ Standard library only (urllib). Three request styles, chosen by Config.style:
              for services that accept a strict schema
   chat-json  Chat Completions for services that only offer JSON mode (DeepSeek, many local servers): response_format json_object,
              max_tokens, and the schema written into the instructions; the local validator and the repair turns do the enforcing
-Whatever comes back is checked locally with the same validate_scene the compiler uses; problems go back to the model for at most
-two repair turns. The key is only ever used as a bearer header; nothing written to the job folder contains it or the images.
+Whatever comes back is checked locally with the same validate_scene the compiler uses, plus the reader's own rules (the check flags,
+the corner count, and a booth layout that contradicts itself); problems go back to the model for at most two repair turns. The key
+is only ever used as a bearer header; nothing written to the job folder contains it or the images.
 """
 from __future__ import annotations
 import copy
@@ -103,6 +104,77 @@ def too_few_corners(scene):
     return [{'code': 'CORNERS', 'where': 'corner_points',
              'message': f'only {len(points)} corner points were given; give at least {MIN_CORNERS} clearly visible corners (8 to 10 is best), '
                         'spread over the floor and the top, so the camera can be checked. Do not invent a corner you cannot see'}]
+
+
+# The booth layout the reading states first (scene description 1.2): the type, the open sides and the cutaway sides. The engine checks
+# a compile against them; this is only the reader's own consistency rule, so an answer that contradicts itself is asked for again.
+TOPOLOGY_KEYS = ('booth_type', 'open_sides', 'cutaway_sides')
+SIDES = ('front', 'back', 'left', 'right')
+OPPOSITE = {'front': 'back', 'back': 'front', 'left': 'right', 'right': 'left'}
+
+
+def missing_topology_keys(scene):
+    """Errors for a reading that leaves out booth_type, open_sides or cutaway_sides. An older file without them still loads (it means
+    "not stated"), but a reading is asked for all three on every answer, so a service that does not enforce the schema (JSON mode)
+    would otherwise skip the question it was asked first."""
+    if not isinstance(scene, dict):
+        return []
+    return [{'code': 'SCHEMA', 'where': key,
+             'message': f"'{key}' is a required key: state it first, or write null when the picture does not show it"}
+            for key in TOPOLOGY_KEYS if key not in scene]
+
+
+def _sides_in(value):
+    """The entries of a list of sides that are one of the four side words, in order; [] when it is not a list."""
+    return [s for s in value if isinstance(s, str) and s in SIDES] if isinstance(value, list) else []
+
+
+def type_for_sides(open_sides):
+    """The booth type the open sides make: 1 side inline, 2 adjacent sides corner, 3 peninsula, 4 island; anything else (2 opposite
+    sides, no side) other. The same table as the engine's check, kept here so the reader can ask again without the engine."""
+    sides = set(open_sides)
+    if len(sides) == 1:
+        return 'inline'
+    if len(sides) == 2 and not any(OPPOSITE[s] in sides for s in sides):
+        return 'corner'
+    return {3: 'peninsula', 4: 'island'}.get(len(sides), 'other')
+
+
+def topology_conflicts(scene):
+    """Repair requests when the booth layout contradicts itself: a side listed twice (in one list, or as both open and cutaway), or a
+    named type that the open sides cannot make. `other` fits any sides, and an unknown (null) value is never a contradiction: only
+    what the reading states is judged, never whether it is right."""
+    if not isinstance(scene, dict):
+        return []
+    errors = []
+    lists = {key: _sides_in(scene.get(key)) for key in ('open_sides', 'cutaway_sides')}
+    for key, sides in lists.items():
+        twice = sorted({s for s in sides if sides.count(s) > 1}, key=SIDES.index)
+        if twice:
+            errors.append({'code': 'TOPOLOGY', 'where': key, 'message': f"{', '.join(twice)} {'is' if len(twice) == 1 else 'are'} listed twice in {key}; "
+                                                                          'list each side at most once'})
+    both = [s for s in SIDES if s in lists['open_sides'] and s in lists['cutaway_sides']]
+    if both:
+        errors.append({'code': 'TOPOLOGY', 'where': 'cutaway_sides',
+                       'message': f"{', '.join(both)} {'is' if len(both) == 1 else 'are'} listed as both open and cutaway; an open side is a real opening and a "
+                                  'cutaway side is only left out of the picture, so a side is one or the other'})
+    kind = scene.get('booth_type')
+    if isinstance(scene.get('open_sides'), list) and kind in ('inline', 'corner', 'peninsula', 'island'):
+        named = sorted(set(lists['open_sides']), key=SIDES.index)
+        expected = type_for_sides(named)
+        if kind != expected:
+            errors.append({'code': 'TOPOLOGY', 'where': 'booth_type',
+                           'message': f"booth_type is '{kind}' but open_sides lists {len(named)} side(s) ({', '.join(named) or 'none'}), which make a '{expected}' booth. "
+                                      'inline = 1 open side, corner = 2 open sides that meet at a corner, peninsula = 3, island = 4, other = anything else. '
+                                      'Look at the picture again and correct whichever of the two is wrong'})
+    return errors
+
+
+def unsaid(errors, said):
+    """`errors` without those that `said` already reports with the same code at the same place: a newer engine's own validation names
+    a side listed twice, and the model should hear that once."""
+    seen = {(e.get('code'), e.get('where')) for e in said}
+    return [e for e in errors if (e['code'], e['where']) not in seen]
 
 
 def parse_json(text):
@@ -285,7 +357,9 @@ def read_scene(image_path, config, work_dir, timeout=900):
             errors = [{'code': 'JSON', 'where': '(reply)', 'message': f'the reply is not a JSON object: {ex}'}]
         if scene is not None:
             scene['image'] = {'width': sent[0], 'height': sent[1]}                # the size is known; do not trust the model with it
-            errors = missing_fit_flags(scene) + too_few_corners(scene) + engine.validate_scene(scene)
+            checked = engine.validate_scene(scene)
+            errors = (missing_fit_flags(scene) + missing_topology_keys(scene) + too_few_corners(scene)
+                      + unsaid(topology_conflicts(scene), checked) + checked)
         log.append({'attempt': attempt + 1, 'errors': len(errors), 'usage': reply['usage']})
         if not errors:
             break

@@ -42,17 +42,36 @@ What each step does underneath:
 
 The card on the right always names the one next action. Engineering details are in **Advanced view**: the fit
 overlay, the quality check and the corner errors (each corner's error when predicted from the others; corners held out by hand are
-marked), Blender's four-pane check sheet, dropped and assumed parts, design hints and every step's log.
+marked), the booth layout the reading stated and the engine's layout checks, Blender's four-pane check sheet, dropped and assumed
+parts, design hints and every step's log.
 
 **Generate and render** reads the picture and builds the model first. If the engine's quality check says the camera and scale are
 not trustworthy enough (`quality_gate.status` is `review`: the corner fit is poor or ambiguous, the corners disagree with each other
 when each is predicted from the others, a table, counter or chair in the picture comes out at the wrong height (`scale_checks`), or
-there are too few corners to check anything), the one-click chain stops before the render. The card says why in plain words and
+there are too few corners to check anything, or the booth layout does not hold together, see below), the one-click chain stops
+before the render. The card says why in plain words and
 offers **Render anyway**, or **Start again** with another picture or your own file. The studio cannot move a corner yet
 (corner-point correction is on the roadmap), so it does not promise to fix a model; you can still compare it with the picture or run
 the quick check first. The server never blocks on the verdict: it passes `quality_gate` and the numbers behind it (`fit.n_fit`,
 `n_check`, `loo_*` with `loo_reliable`, `outliers`, `scale_checks`, `hint`, `limits`) through in the compile step's detail, and the
 page decides.
+
+**The booth layout.** The reading first states the booth type (inline, corner, peninsula, island or other), which sides of the
+footprint are open (no wall, where visitors come in) and which are only cut away in the picture to show the inside. The engine
+checks that against the rest of the reading and passes the result through in the compile step's detail as `topology`
+(`booth_type`, `open_sides`, `cutaway_sides` and `checks`, each `{id, status, message}`). A failed check sends the quality check to
+review, and the card says so in plain words:
+
+| Check that failed | What the card says |
+|---|---|
+| `type_matches_sides` | The booth type does not match the open sides |
+| `wall_on_open_side` | A wall was placed on an open side and left out of the model |
+| `camera_side` | The picture seems to be read back to front or left to right |
+
+`closed_side_without_wall` is information only and never stops the chain. When the reading leaves the type or the open sides
+unstated (`null`), or the file is older than scene description 1.2, nothing is checked and the verdict is the one it was before. The
+check cannot tell whether a stated layout is right, only whether it contradicts the rest of the reading, so a wrong reading that
+does not contradict itself (for example open sides swapped while the camera still looks in through one of them) can still pass.
 
 ## Automatic reading with a large model
 
@@ -64,8 +83,11 @@ two pictures (the plain one and a copy with a pixel grid labelled on all four ed
 points spread over the booth, all used in the fit (`fit: null` on every point; the engine predicts each corner from the others by
 leave-one-out and names the ones it cannot predict, when enough corners are left for that to be reliable), at most one assumed
 dimension (preferably the height; width and depth are worked out from the corners), and `scale_checks` for visible tables and
-counters, which test that one assumed dimension. The scene description version is 1.1; a file without `fit` flags (written earlier)
-still loads, but a *reading* that leaves the flag out, or gives fewer than 6 corner points, is sent back for a repair. Holding
+counters, which test that one assumed dimension. Before any of that, the prompt asks for the booth type, the open sides and the
+cutaway sides (with short definitions and how to tell a cutaway from an opening), and for `null` rather than a guess when the
+picture does not show it. The scene description version is 1.2; a file without `fit` flags or without the three layout keys
+(written earlier) still loads, but a *reading* that leaves the flag or a key out, gives fewer than 6 corner points, names a booth type
+that its own open sides cannot make, or lists a side twice, is sent back for a repair (at most two). Holding
 corners out of the fit (`fit: false`) is still possible in a file written by hand: they are measured but not fitted, which is
 useful with 11 or more corners; the reading prompt does not ask for it, because withholding points from an 8-corner fit costs
 accuracy and leave-one-out already gives an independent check.
@@ -111,9 +133,9 @@ The presets follow each provider's published API. In this repository they are te
 - After a server restart, steps that were running show as errors.
 - The live model in the browser is schematic (no reflections, simplified text and patterns). The rendered pictures show the real
   light and materials.
-- Reading quality depends on the model you use. The quality check predicts each corner from the others and compares visible tables, counters and
-  chairs with their typical heights, so a bad reading is flagged (and the one-click chain pauses) before the render; the Advanced
-  view shows the numbers. Dimensions are estimates from one picture, not measurements.
+- Reading quality depends on the model you use. The quality check predicts each corner from the others, compares visible tables, counters and
+  chairs with their typical heights and checks the stated booth layout, so a bad reading is flagged (and the one-click chain pauses)
+  before the render; the Advanced view shows the numbers. Dimensions are estimates from one picture, not measurements.
 
 ## The standalone editor
 

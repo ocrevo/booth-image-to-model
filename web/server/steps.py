@@ -108,6 +108,13 @@ def _quality_gate(report, report_file):
     return gate if isinstance(gate, dict) else None
 
 
+def _topology(report):
+    """The engine's booth layout check, {'booth_type', 'open_sides', 'cutaway_sides', 'checks': [{'id', 'status', 'message'}]}, passed
+    on unchanged for the page to word. None when the engine reports none (an engine without the layout check)."""
+    topology = report.get('topology')
+    return topology if isinstance(topology, dict) else None
+
+
 def compile_step(jobs, job_id):
     d, status = jobs.path(job_id), jobs.status(job_id)
     if not (d / 'scene.json').is_file():
@@ -128,6 +135,7 @@ def compile_step(jobs, job_id):
     detail = {'status': report['status'], 'components': report['components_built'], 'valid': report['valid'],
               'fit': {k: report['fit'].get(k) for k in FIT_KEYS},
               'quality_gate': _quality_gate(report, d / 'compile' / 'compile_report.json'),
+              'topology': _topology(report),
               'points': [{'id': p['id'], 'err_px': p['err_px'], 'check': p['id'] in check_ids} for p in fit.get('points', [])],
               'dropped': report['dropped'], 'adjustments': report['adjustments'][:40], 'adjustments_total': len(report['adjustments']),
               'assumed': report['assumed'][:60], 'assumed_total': len(report['assumed']), 'warnings': report['warnings'][:40],

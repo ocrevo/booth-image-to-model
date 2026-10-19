@@ -54,17 +54,48 @@ function hadIndependentCheck(fit) {
   return fit.n_check > 0 || (fit.loo_median_px !== null && fit.loo_median_px !== undefined);
 }
 
+/** The plain sentence (a key of COPY.main) for each booth layout check the engine can fail. closed_side_without_wall is information
+ *  only and never fails; a failed check the page has no sentence for leaves the generic line. */
+const TOPOLOGY_NOTES = { type_matches_sides: 'gateWhyTopologyType', wall_on_open_side: 'gateWhyWallOpen', camera_side: 'gateWhyMirrored' };
+
+/** The ids of the layout checks that failed, from the compile step's `topology` ({ booth_type, open_sides, cutaway_sides, checks:
+ *  [{ id, status, message }] }); [] when the engine reports none. */
+export function failedTopologyChecks(detail) {
+  const checks = detail?.topology?.checks;
+  return Array.isArray(checks) ? checks.filter((c) => c && c.status === 'fail').map((c) => String(c.id)) : [];
+}
+
 /** What a review verdict adds to the two status lines (ambiguous and off, which already say their part), in plain words. The engine's
- *  own reasons are for the Advanced view; here every note comes from the fit keys: named corners, a failed cross-check, a failed scale
- *  check, or too few corners to check anything. */
+ *  own reasons are for the Advanced view; here every note comes from the keys the compile step passes on: a layout check that failed
+ *  (the booth type and the open sides, a wall on an open side, the camera looking in through closed sides), named corners, a failed
+ *  cross-check, a failed scale check, or too few corners to check anything. */
 function gateNotes(detail) {
   const fit = detail.fit || {};
   const notes = [];
+  for (const id of failedTopologyChecks(detail)) if (TOPOLOGY_NOTES[id]) notes.push(M[TOPOLOGY_NOTES[id]]);       // the reading of the layout comes first: if it is wrong, so is the rest
   if (Array.isArray(fit.outliers) && fit.outliers.length) notes.push(M.gateWhyOutlier);       // the more specific of the two corner notes
   else if (fit.status === 'check_failed') notes.push(M.gateWhyChecks);
   if (scaleCheckFailed(fit)) notes.push(M.gateWhyScale);
   if (!hadIndependentCheck(fit)) notes.push(M.gateWhyNoCheck);
   return notes;
+}
+
+/** The booth layout as the Advanced view lists it: what the reading said (type, open sides, cutaway sides), then the checks and their
+ *  statuses on one line, then a line for every check that failed or warned (the engine's own words). [] when the engine reports no
+ *  layout (an older engine or job). When the open sides were not stated nothing was checked, and the first line says so. */
+export function topologyLines(topology) {
+  if (!topology || typeof topology !== 'object') return [];
+  const A = COPY.advanced;
+  const sides = (v) => (Array.isArray(v) ? (v.length ? v.join(', ') : A.topologySidesNone) : A.topologySidesUnknown);
+  const lines = [];
+  if (topology.open_sides == null) lines.push(topology.booth_type == null ? A.topologyNotStated : fill(A.topologyNoSides, { type: topology.booth_type }));
+  else lines.push(fill(A.topologyLine, { type: topology.booth_type ?? A.topologySidesUnknown, open: sides(topology.open_sides), cut: sides(topology.cutaway_sides) }));
+  const checks = Array.isArray(topology.checks) ? topology.checks.filter((c) => c && c.id) : [];
+  if (checks.length) lines.push(fill(A.topologyChecks, { list: checks.map((c) => `${c.id} ${c.status ?? '?'}`).join(', ') }));
+  for (const c of checks) {
+    if ((c.status === 'fail' || c.status === 'warn') && c.message) lines.push(fill(A.topologyCheckNote, { id: c.id, status: c.status, message: c.message }));
+  }
+  return lines;
 }
 
 /** The compile result in plain words, most important line first. Each line: { tone, text, look } where `look` names the

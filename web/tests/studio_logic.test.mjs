@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { COPY, BANNED, findBanned, fill, mainStrings } from '../app/js/studio_copy.js';
-import { deriveView, describeError, estimate, expectedText, formatElapsed, gateOf, nextChain, plainFit, scaleCheckFailed, DEFAULT_SECONDS, HD_MAX_PIXELS } from '../app/js/studio_logic.js';
+import { deriveView, describeError, estimate, expectedText, failedTopologyChecks, formatElapsed, gateOf, nextChain, plainFit, scaleCheckFailed, topologyLines, DEFAULT_SECONDS, HD_MAX_PIXELS } from '../app/js/studio_logic.js';
 
 const idle = () => ({ state: 'idle', message: '' });
 function job(steps = {}, { spec = false, scene = false, width = 960, height = 600, origin = null } = {}) {
@@ -27,6 +27,19 @@ const passing = { ...fitted, fit: { ...fitted.fit, ...checks }, quality_gate: { 
 const reviewing = (fit = {}, reasons = ['the engine words its own reason here']) => ({
   ...fitted, fit: { ...fitted.fit, ...checks, ...fit }, quality_gate: { status: 'review', reasons } });
 const offScale = [{ id: 'table_height', expected_m: 1.5, measured_m: 0.74, ratio: 0.49, tolerance: 0.15, ok: false }];
+// What the compile step reports about the booth layout (`topology`: the type and open sides the reading stated, and the engine's checks
+// of them). A reading with no layout, or an engine without the check, has none.
+const layoutChecks = (status = {}) => ['type_matches_sides', 'wall_on_open_side', 'closed_side_without_wall', 'camera_side'].map((id) => ({
+  id, status: status[id] ?? (id === 'closed_side_without_wall' ? 'warn' : 'ok'), message: `the engine words ${id} here` }));
+const layout = (status = {}, extra = {}) => ({ booth_type: 'peninsula', open_sides: ['front', 'left', 'right'], cutaway_sides: [], checks: layoutChecks(status), ...extra });
+const withLayout = (detail, status = {}, extra = {}) => ({ ...detail, topology: layout(status, extra) });
+const layoutReasons = {
+  type_matches_sides: 'the booth type does not match the open sides',
+  wall_on_open_side: 'a wall was placed on an open side and left out',
+  camera_side: 'the camera looks in through closed sides: front/back or left/right may be swapped',
+};
+// A model whose layout failed some checks: the gate says review with the engine's own reasons, and the corner fit itself is fine.
+const layoutFailing = (...ids) => withLayout(reviewing({}, ids.map((id) => layoutReasons[id])), Object.fromEntries(ids.map((id) => [id, 'fail'])));
 
 test('the main path has no engineering words', () => {
   const strings = [...mainStrings()];
@@ -378,4 +391,81 @@ test('a paused one-click render shows the pause and nothing else changes; a fini
   const files = { blend: 'b/booth.blend', client: 'b/client_render.png' };
   const rendered = deriveView(job({ scene: { state: 'done' }, compile, build: { state: 'done', detail: { files } } }, { spec: true }), ctx({ held: true }));
   assert.equal(rendered.card.held, false);                                                  // rendered anyway: the pause is over
+});
+
+test('a layout check that failed is said in plain words, and a passing or information-only one is not', () => {
+  const type = plainFit(layoutFailing('type_matches_sides'));
+  assert.equal(type[0].tone, 'info');                                                       // the corner fit is fine: not "ready", and not an alarm of its own
+  assert.deepEqual(type.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyTopologyType]);
+  assert.match(type.find((l) => l.tone === 'warn').text, /^The booth type does not match the open sides/);
+  assert.equal(type.find((l) => l.tone === 'warn').look, 'align');
+  const wall = plainFit(layoutFailing('wall_on_open_side'));
+  assert.deepEqual(wall.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyWallOpen]);
+  assert.match(wall.find((l) => l.tone === 'warn').text, /^A wall was placed on an open side and left out/);
+  const mirrored = plainFit(layoutFailing('camera_side'));
+  assert.deepEqual(mirrored.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyMirrored]);
+  assert.match(mirrored.find((l) => l.tone === 'warn').text, /^The picture seems to be read back to front or left to right/);
+  const all = plainFit(layoutFailing('type_matches_sides', 'wall_on_open_side', 'camera_side'));
+  assert.deepEqual(all.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyTopologyType, COPY.main.gateWhyWallOpen, COPY.main.gateWhyMirrored]);
+  for (const line of [...type, ...wall, ...mirrored, ...all]) assert.deepEqual(findBanned(line.text), [], line.text);
+  for (const key of ['gateWhyTopologyType', 'gateWhyWallOpen', 'gateWhyMirrored']) assert.deepEqual(findBanned(COPY.main[key]), [], key);
+  assert.doesNotMatch(JSON.stringify([type, wall, mirrored]), /type_matches_sides|wall_on_open_side|camera_side|the engine words|swapped/);   // the engine's own wording stays in the Advanced view
+  const fine = plainFit(withLayout(passing));                                               // all ok, and the information-only check warns: still just "ready"
+  assert.deepEqual(fine, [{ tone: 'good', text: 'Model ready, 62 parts' }]);
+  const unchecked = plainFit(withLayout(passing, { type_matches_sides: 'not_checked', wall_on_open_side: 'not_checked', camera_side: 'not_checked' }));
+  assert.deepEqual(unchecked, [{ tone: 'good', text: 'Model ready, 62 parts' }]);
+});
+
+test('a layout failure comes before the corner notes, and an unknown failed check falls back to the generic line', () => {
+  const both = plainFit(withLayout(reviewing({ status: 'check_failed', outliers: ['top_fl'], scale_checks: offScale }), { camera_side: 'fail' }));
+  assert.deepEqual(both.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyMirrored, COPY.main.gateWhyOutlier, COPY.main.gateWhyScale]);
+  const odd = withLayout(reviewing(), {});
+  odd.topology.checks.push({ id: 'something_new', status: 'fail', message: 'a check a later engine adds' });
+  assert.deepEqual(failedTopologyChecks(odd), ['something_new']);
+  assert.deepEqual(plainFit(odd).filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyGeneric]);
+  assert.deepEqual(failedTopologyChecks(layoutFailing('camera_side', 'type_matches_sides')), ['type_matches_sides', 'camera_side']);
+  for (const detail of [fitted, passing, withLayout(passing), { topology: null }, { topology: { checks: 'no' } }, { topology: { checks: [null, { id: 'a', status: 'ok' }] } }, null, undefined]) {
+    assert.deepEqual(failedTopologyChecks(detail), [], JSON.stringify(detail));
+  }
+  const noLayout = plainFit(reviewing({ outliers: ['top_fl'] }));                           // an engine without the layout check: the notes are unchanged
+  assert.deepEqual(noLayout.filter((l) => l.tone === 'warn').map((l) => l.text), [COPY.main.gateWhyOutlier]);
+});
+
+test('one-click render: a failed layout check holds the render like any other review, and a good layout does not', () => {
+  const done = { state: 'done', message: '' };
+  const model = (detail) => job({ scene: done, compile: { state: 'done', detail } }, { spec: true });
+  for (const ids of [['type_matches_sides'], ['wall_on_open_side'], ['camera_side'], ['type_matches_sides', 'camera_side']]) {
+    assert.deepEqual(nextChain(model(layoutFailing(...ids))), { action: 'hold' }, ids.join());
+  }
+  assert.deepEqual(nextChain(model(withLayout(passing))), { action: 'render' });             // every layout check ok (or information only): on to the render
+  const held = deriveView(model(layoutFailing('camera_side')), ctx({ held: true }));
+  assert.deepEqual([held.card.kind, held.card.gate, held.card.held], ['model', 'review', true]);
+  assert.deepEqual([held.render.can, held.canExportGlb], [true, true]);                      // render anyway, the quick check and the export stay reachable
+  assert.equal(held.card.fit.some((l) => l.tone === 'warn' && l.text === COPY.main.gateWhyMirrored), true);
+  const free = deriveView(model(layoutFailing('camera_side')), ctx());
+  assert.deepEqual([free.card.gate, free.card.held], ['review', false]);
+});
+
+test('the Advanced view lists what the reading said about the layout and every check with its status', () => {
+  const ok = topologyLines(layout());
+  assert.equal(ok.length, 3);                                                                // the reading, the checks, and the information-only warn in the engine's words
+  assert.equal(ok[0], 'Booth layout read from the picture: type peninsula, open sides front, left, right, cutaway sides none');
+  assert.equal(ok[1], 'Layout checks: type_matches_sides ok, wall_on_open_side ok, closed_side_without_wall warn, camera_side ok');
+  assert.equal(ok[2], 'Layout check closed_side_without_wall (warn): the engine words closed_side_without_wall here');
+  const failing = topologyLines(layout({ camera_side: 'fail', type_matches_sides: 'not_checked' }, { cutaway_sides: ['back'] }));
+  assert.match(failing[0], /cutaway sides back$/);
+  assert.match(failing[1], /type_matches_sides not_checked.*camera_side fail$/);
+  assert.match(failing[failing.length - 1], /^Layout check camera_side \(fail\): the engine words camera_side here$/);
+  const typeOnly = topologyLines({ booth_type: 'inline', open_sides: null, cutaway_sides: null, checks: [] });
+  assert.deepEqual(typeOnly, ['Booth layout: the reading said type inline but did not state the open sides, so the layout checks did not run.']);
+  const sidesOnly = topologyLines({ booth_type: null, open_sides: ['front'], cutaway_sides: null, checks: [] });
+  assert.deepEqual(sidesOnly, ['Booth layout read from the picture: type not stated, open sides front, cutaway sides not stated']);
+  const none = topologyLines({ booth_type: null, open_sides: null, cutaway_sides: null,
+    checks: ['type_matches_sides', 'wall_on_open_side', 'closed_side_without_wall', 'camera_side'].map((id) => ({ id, status: 'not_checked', message: 'not stated' })) });
+  assert.match(none[0], /did not state a type or the open sides, so the layout checks did not run/);
+  assert.match(none[1], /camera_side not_checked$/);
+  assert.equal(none.length, 2);                                                              // not_checked is not a warning: no extra lines
+  for (const empty of [null, undefined, 'x', 3]) assert.deepEqual(topologyLines(empty), []);   // an engine or a job without the layout: nothing to list
+  assert.deepEqual(topologyLines({ booth_type: 'other', open_sides: ['front', 'back'], cutaway_sides: [], checks: [null, { status: 'ok' }] }),
+    ['Booth layout read from the picture: type other, open sides front, back, cutaway sides none']);   // damaged check entries are skipped, not a crash
 });

@@ -124,6 +124,24 @@ class Contract(unittest.TestCase):
         self.assertEqual(sorted(point['properties']['fit']['type']), ['boolean', 'null'])       # ... which may be null (= used in the fit)
         self.assertIn('1.1', schema['properties']['schema_version']['enum'])
 
+    def test_the_provider_schema_asks_for_the_booth_layout_in_the_words_of_the_prompt(self):
+        """booth_type, open_sides and cutaway_sides: required (strict formats want every key) and nullable (null = not stated), the
+        values the prompt names, and written first, so a strict format makes the model state them before anything else."""
+        props = reader.provider_schema()['properties']
+        self.assertIn('1.2', props['schema_version']['enum'])
+        order = list(props)
+        self.assertLess(max(order.index(k) for k in reader.TOPOLOGY_KEYS), min(order.index(k) for k in ('image', 'known', 'corner_points', 'components')))
+        self.assertEqual(reader.TOPOLOGY_KEYS, ('booth_type', 'open_sides', 'cutaway_sides'))
+        self.assertTrue(set(reader.TOPOLOGY_KEYS) <= set(reader.provider_schema()['required']))
+        self.assertIn('null', props['booth_type']['type'])
+        self.assertEqual(set(props['booth_type']['enum']) - {None}, {'inline', 'corner', 'peninsula', 'island', 'other'})
+        for key in ('open_sides', 'cutaway_sides'):
+            self.assertEqual(sorted(props[key]['type']), ['array', 'null'], key)
+            self.assertEqual(set(props[key]['items']['enum']), set(reader.SIDES), key)
+        text = reader.PROMPT.read_text(encoding='utf-8')
+        for word in sorted(set(props['booth_type']['enum']) - {None}) + list(reader.SIDES):
+            self.assertIn(f'`{word}`', text, word)                                           # the prompt and the schema name the same values
+
     def test_pixels_are_scaled_back_to_the_original_picture(self):
         scene = fixtures.scene()
         out = reader.scale_scene_pixels(scene, 2.0, 1920, 1200)
@@ -170,10 +188,36 @@ class ThePrompt(unittest.TestCase):
         self.assertIn('exactly ONE plausible value', text)                                      # one assumed dimension, never all of W, D and H
         self.assertIn('At most ONE dimension is ever assumed', text)
         self.assertIn('never W and D together', text)
-        self.assertIn('Write "1.1" in `schema_version`', text)
+        self.assertIn('Write "1.2" in `schema_version`', text)
         scale = text.split('## scale_checks')[1].split('## scopes')[0]
         for part in ('cafe table', 'counter', 'chair', '`tv`', 'assumed dimension'):
             self.assertIn(part, scale)
+
+    def test_it_asks_for_the_booth_type_and_the_open_sides_first(self):
+        text = self.text
+        layout = text.split('## Booth type and open sides')[1].split('## Booth axes and dimensions')[0]
+        for later in ('## Booth axes and dimensions', '## corner_points', '## scale_checks', '## scopes', '## components'):
+            self.assertLess(text.index('## Booth type and open sides'), text.index(later), later)       # before any corner or part is placed
+        for key in ('`booth_type`', '`open_sides`', '`cutaway_sides`'):
+            self.assertIn(key, layout)
+        self.assertIn('FIRST in the JSON object, right after `schema_version` and `project_id`', layout)
+        for side in ('`front` is the -Y side', '`back` +Y', '`left` -X', '`right` +X'):                    # the side words are the corner-token words
+            self.assertIn(side, layout)
+        self.assertIn('a front corner has -D/2, a back corner D/2, a left corner -W/2, a right corner W/2', layout)
+        self.assertIn('An open side is a side of the floor rectangle with no wall, where visitors walk in', layout)
+        for definition in ('`inline`: 1 open side', '`corner`: 2 open sides that meet at a corner', '`peninsula`: 3 open sides',
+                           '`island`: 4 open sides', '`other`: anything else', '2 opposite sides open'):
+            self.assertIn(definition, layout)
+        self.assertIn('is only left out of the picture to show the inside', layout)                          # the cutaway, defined
+        self.assertIn('NOT in `open_sides`', layout)
+        self.assertIn('Telling a cutaway from an opening', layout)                                            # ... and told from an opening
+        self.assertIn('end in a flat cut', layout)
+        self.assertIn('finished wall ends', layout)
+        self.assertIn('Write `[]` in `cutaway_sides` when there is none', layout)
+        self.assertIn('Write `null` in `booth_type` and `open_sides` only when you really cannot tell', layout)   # unknown is allowed, a guess is not
+        self.assertIn('Never choose a type just to make the numbers agree', layout)
+        self.assertIn('never put a `wall` on a side you listed in `open_sides` (a cutaway side may have one)', text)
+        self.assertNotIn('CAD', text)
 
     def test_it_no_longer_asks_for_check_corners(self):
         for gone in ('exactly TWO', 'give 6 or 7', 'only one of them a check', 'independent checks', 'Write `true`'):
@@ -207,10 +251,135 @@ class ThePrompt(unittest.TestCase):
         stated = [k for k, v in scene['known'].items() if v is not None]
         self.assertEqual(stated, scene['assumed'])                                              # nothing is stated on this picture: the one value is assumed
         self.assertEqual(len(stated), 1)
-        self.assertEqual(scene['schema_version'], '1.1')
-        used = {t for p in points for t in p['xyz']}
+        self.assertEqual(scene['schema_version'], '1.2')
+        used ={t for p in points for t in p['xyz']}
         self.assertTrue({'F', 'H'} <= used and used & {'W/2', '-W/2'} and used & {'D/2', '-D/2'})   # the points fix every dimension
         self.assertEqual(engine.validate_scene(scene), [])
+
+    def test_the_synthetic_scene_states_a_layout_that_its_geometry_agrees_with(self):
+        scene = fixtures.scene()
+        self.assertEqual(list(scene)[:5], ['schema_version', 'project_id', 'booth_type', 'open_sides', 'cutaway_sides'])   # stated first, as the prompt asks
+        open_sides, cutaway = scene['open_sides'], scene['cutaway_sides']
+        self.assertEqual((scene['booth_type'], open_sides, cutaway), ('peninsula', ['front', 'left', 'right'], []))
+        self.assertEqual(scene['booth_type'], reader.type_for_sides(open_sides))                            # three open sides make a peninsula
+        walls = {c['plane'] for c in scene['components'] if c['type'] == 'wall'}
+        self.assertEqual(walls, {'back'})                                                                    # the one wall is on the one closed side ...
+        self.assertFalse(walls & set(open_sides))                                                            # ... and none stands across an open side
+        self.assertTrue(set(fixtures.camera_outer_sides()) & (set(open_sides) | set(cutaway)))              # the camera looks in through an open side
+        self.assertEqual((reader.missing_topology_keys(scene), reader.topology_conflicts(scene)), ([], []))
+        self.assertEqual(engine.validate_scene(scene), [])
+        for kind in fixtures.TOPOLOGY_KINDS:                                                                  # the three failing variants are valid files too
+            self.assertEqual(engine.validate_scene(fixtures.topology_scene(kind)), [], kind)
+        self.assertEqual(fixtures.topology_scene('wall')['open_sides'], ['front', 'back', 'left', 'right'])
+        camera = fixtures.topology_scene('camera')
+        self.assertFalse(set(fixtures.camera_outer_sides()) & (set(camera['open_sides']) | set(camera['cutaway_sides'])))   # only closed sides face the camera
+        self.assertFalse(any(c['type'] == 'wall' for c in camera['components']))
+        self.assertEqual(reader.topology_conflicts(camera), [])                                              # a reading that contradicts nothing itself: the reader cannot see it
+        self.assertTrue(reader.topology_conflicts(fixtures.topology_scene('type')))                          # this one the reader does see
+        with self.assertRaises(ValueError):
+            fixtures.topology_scene('nonsense')
+        self.assertEqual(fixtures.scene(), scene)                                                            # the variants do not touch the base scene
+
+
+class TheBoothLayoutRule(unittest.TestCase):
+    """The reader's own consistency rule for the layout: only a reading that contradicts itself is asked again, never one that is merely wrong."""
+    ADJACENT = ({'front', 'left'}, {'front', 'right'}, {'back', 'left'}, {'back', 'right'})
+
+    @staticmethod
+    def layout(booth_type, open_sides, cutaway_sides=()):
+        return {'booth_type': booth_type, 'open_sides': None if open_sides is None else list(open_sides),
+                'cutaway_sides': None if cutaway_sides is None else list(cutaway_sides)}
+
+    def expected(self, sides):
+        """The contract written out by hand, apart from the code under test: 1 side inline, 2 adjacent sides corner, 3 peninsula, 4 island,
+        anything else (2 opposite sides, no side) other."""
+        sides = set(sides)
+        if len(sides) == 2:
+            return 'corner' if sides in self.ADJACENT else 'other'
+        return {1: 'inline', 3: 'peninsula', 4: 'island'}.get(len(sides), 'other')
+
+    def test_every_set_of_open_sides_makes_the_type_the_contract_says(self):
+        import itertools
+        seen = set()
+        for n in range(5):
+            for sides in itertools.combinations(reader.SIDES, n):
+                kind = self.expected(sides)
+                seen.add(kind)
+                self.assertEqual(reader.type_for_sides(sides), kind, sides)
+                self.assertEqual(reader.type_for_sides(reversed(sides)), kind, sides)                       # the order they are listed in does not matter
+                self.assertEqual(reader.topology_conflicts(self.layout(kind, sides)), [], (kind, sides))
+                for named in ('inline', 'corner', 'peninsula', 'island'):
+                    errors = reader.topology_conflicts(self.layout(named, sides))
+                    self.assertEqual(len(errors), 0 if named == kind else 1, (named, sides))
+                    if errors:
+                        self.assertEqual((errors[0]['code'], errors[0]['where']), ('TOPOLOGY', 'booth_type'))
+                self.assertEqual(reader.topology_conflicts(self.layout('other', sides)), [], sides)         # `other` fits any sides
+                self.assertEqual(reader.topology_conflicts(self.layout(None, sides)), [], sides)            # not stated is not a contradiction
+        self.assertEqual(seen, {'inline', 'corner', 'peninsula', 'island', 'other'})
+        self.assertEqual(reader.type_for_sides(['front', 'back']), 'other')                                  # two opposite sides are not a corner
+        self.assertEqual(reader.type_for_sides(['left', 'right']), 'other')
+        self.assertEqual(reader.type_for_sides(['front', 'left']), 'corner')
+
+    def test_the_reader_and_the_engine_use_one_table(self):
+        """The reader keeps its own copy of the table (the web side reaches the engine only through engine.py); this pins it to the engine's."""
+        import draft_compile
+        import itertools
+        self.assertEqual(tuple(reader.SIDES), tuple(draft_compile.SIDES))
+        self.assertEqual(reader.TOPOLOGY_KEYS, tuple(draft_compile.TOPOLOGY_KEYS))
+        for n in range(5):
+            for sides in itertools.combinations(reader.SIDES, n):
+                self.assertEqual(reader.type_for_sides(sides), draft_compile.expected_booth_type(sides), sides)
+        for booth_type in ('inline', 'corner', 'peninsula', 'island', 'other', None):          # and the contradictions are the ones the engine reports
+            for sides in ([], ['front'], ['front', 'back'], ['front', 'left'], ['front', 'left', 'right'], list(reader.SIDES)):
+                scene = self.layout(booth_type, sides)
+                engine_says = [e for e in draft_compile.topology_problems(scene) if e['where'] == 'booth_type']
+                reader_says = [e for e in reader.topology_conflicts(scene) if e['where'] == 'booth_type']
+                self.assertEqual(bool(reader_says), bool(engine_says), (booth_type, sides))
+
+    def test_the_complaint_names_both_values_and_how_to_decide(self):
+        (error,) = reader.topology_conflicts(self.layout('inline', ['front', 'left', 'right']))
+        self.assertIn("booth_type is 'inline'", error['message'])
+        self.assertIn('3 side(s) (front, left, right)', error['message'])
+        self.assertIn("make a 'peninsula' booth", error['message'])
+        self.assertIn('inline = 1 open side', error['message'])
+        self.assertIn('correct whichever of the two is wrong', error['message'])
+        (opposite,) = reader.topology_conflicts(self.layout('corner', ['front', 'back']))
+        self.assertIn("make a 'other' booth", opposite['message'])
+
+    def test_a_side_listed_twice_is_a_contradiction(self):
+        (twice,) = reader.topology_conflicts(self.layout('peninsula', ['front', 'left', 'left', 'right']))     # still a peninsula once the repeat is gone
+        self.assertEqual((twice['code'], twice['where']), ('TOPOLOGY', 'open_sides'))
+        self.assertIn('left is listed twice in open_sides', twice['message'])
+        (cut,) = reader.topology_conflicts(self.layout('inline', ['front'], ['back', 'back']))
+        self.assertEqual(cut['where'], 'cutaway_sides')
+        (two,) = reader.topology_conflicts(self.layout('other', ['front', 'front', 'back', 'back']))
+        self.assertIn('front, back are listed twice', two['message'])
+        (both,) = reader.topology_conflicts(self.layout('corner', ['front', 'left'], ['left']))
+        self.assertIn('left is listed as both open and cutaway', both['message'])
+        self.assertEqual(reader.topology_conflicts(self.layout('inline', ['front'], ['back', 'left'])), [])   # cutaway sides are not counted in the type
+
+    def test_nothing_stated_or_nothing_usable_is_left_to_the_schema_check(self):
+        for scene in ({}, self.layout(None, None, None), self.layout('island', None, None), self.layout(None, ['front'], None),
+                      {'booth_type': 5, 'open_sides': 'front', 'cutaway_sides': {'a': 1}}, {'booth_type': ['inline'], 'open_sides': []},
+                      self.layout('inline', ['top', 'bottom']), None, [], 'x'):
+            try:
+                reader.topology_conflicts(scene)
+            except Exception as ex:                                                                          # never a crash on a reply that is not a scene
+                self.fail(f'{scene!r}: {ex!r}')
+        self.assertEqual(reader.topology_conflicts(self.layout('island', None, None)), [])
+        self.assertEqual(reader.topology_conflicts(self.layout('other', [], [])), [])                         # no open side at all is "other"
+        (none,) = reader.topology_conflicts(self.layout('inline', [], []))
+        self.assertIn('0 side(s) (none)', none['message'])
+
+    def test_the_three_keys_must_be_there_even_when_they_are_null(self):
+        scene = fixtures.scene()
+        self.assertEqual(reader.missing_topology_keys(scene), [])
+        self.assertEqual(reader.missing_topology_keys({**scene, 'booth_type': None, 'open_sides': None, 'cutaway_sides': None}), [])
+        gone = {k: v for k, v in scene.items() if k not in ('booth_type', 'cutaway_sides')}
+        errors = reader.missing_topology_keys(gone)
+        self.assertEqual([(e['code'], e['where']) for e in errors], [('SCHEMA', 'booth_type'), ('SCHEMA', 'cutaway_sides')])
+        self.assertIn('write null', errors[0]['message'])
+        self.assertEqual(reader.missing_topology_keys(None), [])
 
 
 class ReadScene(unittest.TestCase):
@@ -311,6 +480,49 @@ class ReadScene(unittest.TestCase):
         self.assertIn('CORNERS corner_points: only 5 corner points were given', complaint)
         self.assertIn('at least 6 clearly visible corners', complaint)
         self.assertGreaterEqual(len(result['scene']['corner_points']), reader.MIN_CORNERS)
+
+    def test_a_booth_type_that_contradicts_the_open_sides_is_sent_back(self):
+        mock, config = self.run_with(['bad_layout', 'good'])
+        result = self.read(config)
+        self.assertEqual(result['attempts'], 2)
+        complaint = self.turns(mock.requests[1]['body'])[2]['content']
+        self.assertIn('TOPOLOGY booth_type', complaint)
+        self.assertIn("booth_type is 'inline' but open_sides lists 3 side(s) (front, left, right)", complaint)
+        self.assertIn("make a 'peninsula' booth", complaint)
+        self.assertEqual((result['scene']['booth_type'], result['scene']['open_sides']), ('peninsula', ['front', 'left', 'right']))
+
+    def test_a_side_listed_twice_is_sent_back(self):
+        mock, config = self.run_with(['twice_listed', 'good'])
+        result = self.read(config)
+        self.assertEqual(result['attempts'], 2)
+        complaint = self.turns(mock.requests[1]['body'])[2]['content']
+        self.assertRegex(complaint, r"TOPOLOGY open_sides: '?left'? is listed (twice|more than once)")     # the engine's words, or the reader's own
+        self.assertEqual(result['scene']['open_sides'], ['front', 'left', 'right'])
+
+    def test_a_reading_without_the_layout_keys_is_sent_back_even_though_the_compiler_would_accept_it(self):
+        mock, config = self.run_with(['no_layout_keys', 'good'])
+        result = self.read(config)
+        self.assertEqual(result['attempts'], 2)
+        complaint = self.turns(mock.requests[1]['body'])[2]['content']
+        for key in reader.TOPOLOGY_KEYS:
+            self.assertIn(f"{key}: '{key}' is a required key", complaint)
+        self.assertIn('write null', complaint)
+        self.assertTrue(all(key in result['scene'] for key in reader.TOPOLOGY_KEYS))
+
+    def test_a_layout_that_is_merely_wrong_is_not_sent_back(self):
+        """The reader asks again when the answer contradicts itself, not when it looks doubtful: the engine's layout checks judge that,
+        against the corner fit, once the model is compiled."""
+        mock, config = self.run_with(['topology'])
+        result = self.read(config)
+        self.assertEqual((result['attempts'], len(mock.requests)), (1, 1))
+        self.assertEqual((result['scene']['booth_type'], result['scene']['open_sides']), ('inline', ['back']))
+
+    def test_the_layout_survives_the_trip_through_the_reader(self):
+        _, config = self.run_with(['good'])
+        scene = self.read(config)['scene']
+        good = fixtures.scene()
+        self.assertEqual([scene[k] for k in reader.TOPOLOGY_KEYS], [good[k] for k in reader.TOPOLOGY_KEYS])
+        self.assertEqual(scene['schema_version'], '1.2')
 
     def test_the_corner_rules_are_light_a_count_and_the_key_nothing_about_how_many_are_held_out(self):
         scene = fixtures.scene()
@@ -509,6 +721,10 @@ class ThroughTheServer(unittest.TestCase):
         self.assertEqual(detail['quality_gate'], {'status': 'pass', 'reasons': []})          # what the reading asks for (8 corners, all fitted, one assumption) passes
         self.assertEqual((detail['fit']['n_check'], detail['fit']['n_fit']), (0, 8))         # nothing is withheld from the fit
         self.assertEqual(detail['fit']['scale_checks'], [])                                  # the keys the page reads are all there
+        topology = detail['topology']                                                         # the layout check is passed on
+        self.assertEqual((topology['booth_type'], topology['open_sides'], topology['cutaway_sides']), ('peninsula', ['front', 'left', 'right'], []))
+        self.assertEqual({c['id'] for c in topology['checks']}, {'type_matches_sides', 'wall_on_open_side', 'closed_side_without_wall', 'camera_side'})
+        self.assertNotIn('fail', {c['status'] for c in topology['checks']})                   # what the reading states agrees with the corners and the parts
         scene = json.loads((Path(self._tmp.name) / 'jobs' / job / 'scene.json').read_text(encoding='utf-8'))
         self.assertEqual([p['fit'] for p in scene['corner_points']], [None] * 8)             # the stored scene keeps the key, null on every point
         for path in Path(self._tmp.name).rglob('*'):
@@ -529,6 +745,21 @@ class ThroughTheServer(unittest.TestCase):
         detail = st['steps']['compile']['detail']
         self.assertEqual(detail['quality_gate']['status'], 'review')
         self.assertIn(detail['fit']['status'], ('high_residual', 'check_failed'))             # the engine says which; it is not 'fitted'
+
+    def test_a_reading_that_looks_in_through_closed_sides_compiles_and_says_review(self):
+        self.mock.script[:] = ['topology']                                                    # the reading names the back as the only open side
+        self.api.call('POST', '/api/config', {'openai_api_key': KEY})
+        job = self.new_job()
+        self.assertEqual(self.api.call('POST', f'/api/jobs/{job}/read', {'mode': 'openai', 'consent': True})[0], 202)
+        st = self.wait(job)
+        self.assertEqual((st['steps']['scene']['state'], st['steps']['scene']['detail']['attempts']), ('done', 1))   # nothing in it contradicts itself
+        self.assertEqual(self.api.call('POST', f'/api/jobs/{job}/compile', {})[0], 202)
+        st = self.wait(job)
+        self.assertEqual(st['steps']['compile']['state'], 'done', st['steps']['compile'])          # the server compiles it; the page decides about the render
+        detail = st['steps']['compile']['detail']
+        self.assertEqual(detail['quality_gate']['status'], 'review')
+        self.assertEqual([c['status'] for c in detail['topology']['checks'] if c['id'] == 'camera_side'], ['fail'])
+        self.assertEqual(detail['fit']['status'], 'fitted')                                        # the corners are fine; only the layout is doubtful
 
     def test_a_failed_reading_is_an_error_on_the_card_and_keeps_the_job_usable(self):
         self.mock.script[:] = ['http401']

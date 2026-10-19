@@ -4,7 +4,7 @@
 
 import { createEditor } from './app.js';
 import { COPY, fill } from './studio_copy.js';
-import { deriveView, gateOf, nextChain } from './studio_logic.js';
+import { deriveView, gateOf, nextChain, topologyLines } from './studio_logic.js';
 
 const M = COPY.main;
 const A = COPY.advanced;
@@ -738,7 +738,7 @@ function pointsTable(compile) {
   return h('div', {}, h('h3', {}, A.pointsTitle), h('table', {}, h('tr', {}, A.pointsHead.map((t) => h('th', {}, t))), rows));
 }
 
-/** The engine's quality check in its own words, with the numbers behind it (Advanced view, alignment page). */
+/** The engine's quality check in its own words, with the numbers behind it and the booth layout checks (Advanced view, alignment page). */
 function qualityBlock(compile) {
   const gate = gateOf(compile);
   const fit = compile.fit || {};
@@ -757,6 +757,7 @@ function qualityBlock(compile) {
     lines.push(fill(A.scaleLine, { id: c.id, measured: num(c.measured_m ?? c.measured_height_m), expected: num(c.expected_m ?? c.expected_height_m), ratio: num(c.ratio), verdict }));
   }
   if (typeof fit.hint === 'string' && fit.hint) lines.push(fit.hint);                         // the engine's own advice (re-click what it names)
+  lines.push(...topologyLines(compile.topology));                                             // what the reading said about the open sides, and the layout checks
   return h('div', { id: 'qualityBlock' }, h('h3', {}, A.gateTitle),
     h('p', { id: 'gateLine' }, gate ? fill(A.gateLine, { status: gate.status }) : A.gateNone),
     h('ul', {}, [...(gate ? gate.reasons : []), ...lines].map((t) => h('li', {}, t))));

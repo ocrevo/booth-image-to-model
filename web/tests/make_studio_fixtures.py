@@ -1,5 +1,6 @@
-"""Write the synthetic inputs of the studio smoke test: a picture, a good scene description and a broken one. (The reading whose
-quality gate says "review" is not a file: the stand-in service writes it from scene_fixture.review_scene().)
+"""Write the synthetic inputs of the studio smoke test: a picture, a good scene description, a broken one and one whose booth layout
+the engine fails (the camera looks in through closed sides, so the quality gate says "review"). (The reading whose corner is clicked
+far off is not a file: the stand-in service writes it from scene_fixture.review_scene().)
 
     python web/tests/make_studio_fixtures.py <out_dir>
 """
@@ -29,7 +30,8 @@ def main(out):
     bad = fixtures.scene()
     bad['components'][0]['scope'] = 'nowhere'
     write(out / 'bad_scene.json', bad)
-    print(f'wrote booth.png, scene.json, bad_scene.json to {out}')
+    write(out / 'layout_review_scene.json', fixtures.topology_scene('camera'))
+    print(f'wrote booth.png, scene.json, bad_scene.json, layout_review_scene.json to {out}')
 
 
 if __name__ == '__main__':

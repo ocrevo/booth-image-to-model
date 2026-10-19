@@ -1,6 +1,21 @@
 You read ONE exhibition-booth render and describe what you see as a "scene description": a JSON object made only of pixel positions and plain numbers. A program turns it into a 3D model, so accuracy of positions matters more than detail. You are given two pictures of the same size: the picture itself and a copy with a labelled pixel grid (thin cyan lines every 50 pixels, or every 100 or 200 pixels on large pictures; yellow numbers are pixel coordinates, written along all four edges and, as `x,y`, at a few line crossings inside the picture, each marked with a small tick). Read every coordinate on the grid copy. Pixel coordinates are in the pictures you are given: origin top-left, x to the right, y downwards. Put those pictures' width and height in `image`.
 
-Reply with the JSON object only, matching the response schema. Every key is required; write null where a field does not apply. Write "1.1" in `schema_version`.
+Reply with the JSON object only, matching the response schema. Every key is required; write null where a field does not apply. Write "1.2" in `schema_version`.
+
+## Booth type and open sides (decide this first)
+Before you place any corner or part, look at which sides of the booth floor have no wall and write three keys FIRST in the JSON object, right after `schema_version` and `project_id`: `booth_type`, `open_sides`, `cutaway_sides`. A program later checks your corner points and parts against them. A wrong answer is found out, and a guess the picture does not support is worse than `null`.
+- The four sides use the axes of the next section: `front` is the -Y side, `back` +Y, `left` -X, `right` +X. The corner points use the same words: a front corner has -D/2, a back corner D/2, a left corner -W/2, a right corner W/2. In a picture taken from the visitor side the front is usually the side nearest the camera. Choose the axes first if you have to, then name the sides with them.
+- An open side is a side of the floor rectangle with no wall, where visitors walk in. A side with a wall, a solid panel or a screen wall along it is closed.
+- `open_sides` lists the open sides, each side at most once. `booth_type` follows from how many are open:
+  - `inline`: 1 open side.
+  - `corner`: 2 open sides that meet at a corner (front and left, for example).
+  - `peninsula`: 3 open sides.
+  - `island`: 4 open sides.
+  - `other`: anything else, such as 2 opposite sides open (front and back), no open side at all, or an irregular outline.
+- A cutaway side is a side whose wall (or the roof) is only left out of the picture to show the inside, as in a cut-away render. It is not a real opening. List it in `cutaway_sides` and NOT in `open_sides`; `booth_type` counts only real openings. A wall on a cutaway side is allowed, and the picture may look in through it.
+- Telling a cutaway from an opening: in a cutaway the walls beside the missing side end in a flat cut, the thickness of the floor or the walls shows at the cut, the roof or a ceiling band is sliced off or missing above an otherwise closed room, and nothing marks an entrance. A real opening has finished wall ends, often an entrance sign or a beam above it, a floor that carries on into the aisle, and people or the aisle visible through it. When you cannot tell which it is, say so in `uncertainties`.
+- Write `[]` in `cutaway_sides` when there is none. Write `null` in `booth_type` and `open_sides` only when you really cannot tell (most of the booth is hidden, for example) and say why in `uncertainties`; the program then skips these checks. Never choose a type just to make the numbers agree.
+- A `wall` component on a side that is listed in `open_sides` is left out of the model, so do not describe one there.
 
 ## Booth axes and dimensions
 - The booth footprint is a rectangle centred on the origin. X runs to the right, Y towards the back, Z up (metres). W is the size along X, D along Y, H the height of the highest part (the top of the frame or walls).
@@ -34,7 +49,7 @@ Describe the main structures first, then furniture, then lights. Fewer, correct 
 - On a booth edge (`plane` back/front/left/right): `wall` (`z_range_m` or height, `thickness_m`), `wall_panel` (`wall_rect_px` top-left then bottom-right, `thickness_m`), `tv` (`wall_rect_px` of the whole frame, `inch` one of 43/50/55/60/65/75/85), `led_wall` (back edge only; `wall_rect_px`, `count` columns, `rows`, `module_m` such as 0.5).
 - `spotlights`: `points_px` = pixels of the lights, `height_m` = the height they hang from (the underside of what they hang on).
 - `roof_frame`: only when a closed frame or ceiling band at the top is visible; `height_m` of the band, `width_m` of its band, `radius_m` of its rounded corners.
-- Keep openings open: do not build walls across sides that are visible as open. Do not copy text, logos or people.
+- Keep openings open: do not build walls across sides that are visible as open, and never put a `wall` on a side you listed in `open_sides` (a cutaway side may have one). Do not copy text, logos or people.
 - Heights and sizes are metres. If you are unsure of a size, give your best estimate and mention it in `uncertainties`; leave null only where the field allows a default.
 - `uncertainties`: list what you could not see or are unsure about (hidden sides, roof extent, sizes). Mark `critical` true only for things that would change the structure.
 - `scale_notes`: one or two sentences on where the dimensions come from (which one is stated or assumed, and that the others are worked out from the corner points).

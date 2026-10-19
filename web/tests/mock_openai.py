@@ -6,7 +6,10 @@ Behaviours (one per request, the last one repeats): good, bad_scene, not_json, r
 real one), http400 (output limit refused), http500, redirect (302 to another path), hang (answers after 3 s), incomplete,
 no_fit_keys (the scene without corner_points[].fit, as a service that ignores the schema might write it), few_corners (the scene with
 only five corner points), review (the scene with one corner clicked far from where it belongs, as scene_fixture.review_scene() writes
-it: the compiled quality gate says "review").
+it: the compiled quality gate says "review"), no_layout_keys (the scene without booth_type, open_sides and cutaway_sides),
+bad_layout (booth_type "inline" with three open sides), twice_listed (a side listed twice in open_sides), topology (a reading that
+contradicts nothing itself but whose open side the engine's layout check fails, as scene_fixture.topology_scene('camera') writes it:
+the compiled quality gate says "review").
 Both wire formats are served: POST /v1/responses and POST /v1/chat/completions.
 """
 from __future__ import annotations
@@ -83,6 +86,16 @@ class MockOpenAI:
                 point.pop('fit', None)
         if behaviour == 'few_corners':
             scene['corner_points'] = scene['corner_points'][:5]
+        if behaviour == 'no_layout_keys':
+            for key in ('booth_type', 'open_sides', 'cutaway_sides'):
+                scene.pop(key, None)
+        if behaviour == 'bad_layout':
+            scene['booth_type'] = 'inline'
+        if behaviour == 'twice_listed':
+            scene['open_sides'] = ['front', 'left', 'left', 'right']
+        if behaviour == 'topology':
+            import scene_fixture                              # imported late like the review scene: it pulls in the skill's test helpers
+            scene = scene_fixture.topology_scene('camera', scene)
         if behaviour == 'review':
             import scene_fixture                              # the one definition of that scene; imported late, it pulls in the skill's test helpers
             scene = scene_fixture.review_scene(scene)

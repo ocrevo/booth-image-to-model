@@ -179,6 +179,7 @@ class GateTests(unittest.TestCase):
 
 class SchemaTests(unittest.TestCase):
     def raw_valid(self, s):
+        s = dict(s, **{k: None for k in dc.TOPOLOGY_KEYS if k not in s})            # the 1.2 booth grammar keys are tested in test_topology
         return Draft202012Validator(dc.load_schema()).is_valid(s)
 
     def test_a_1_1_scene_with_and_without_check_corners_validates(self):
@@ -202,11 +203,11 @@ class SchemaTests(unittest.TestCase):
             self.assertEqual({e['code'] for e in dc.validate_scene(s)}, {'SCHEMA'}, value)
 
     def test_schema_versions(self):
-        for version in ('1.1', '1.0', 'scene-description.v1'):
+        for version in ('1.2', '1.1', '1.0', 'scene-description.v1'):
             s = t.scene()
             s['schema_version'] = version
             self.assertEqual(dc.validate_scene(s), [], version)
-        for version in ('2.0', '1', 1.1, None):
+        for version in ('2.0', '1', '1.3', 1.1, None):
             s = t.scene()
             s['schema_version'] = version
             self.assertEqual({e['code'] for e in dc.validate_scene(s)}, {'SCHEMA'}, version)
@@ -229,7 +230,7 @@ class OlderScenes(t.Base):
         up = dc.upgrade_scene(old)
         self.assertIsNot(up, old)
         self.assertTrue(all(p['fit'] is None for p in up['corner_points']))
-        full = t.scene()
+        full = dc.upgrade_scene(t.scene())                                          # every key filled (fit, and the 1.2 booth grammar)
         self.assertIs(dc.upgrade_scene(full), full)                                 # nothing to fill: the same object comes back
 
     def test_the_shim_leaves_other_problems_to_the_schema(self):

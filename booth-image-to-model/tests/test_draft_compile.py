@@ -112,7 +112,7 @@ class SchemaTests(Base):
                 if node.get('type') == 'object' or 'properties' in node:
                     self.assertIs(node.get('additionalProperties'), False, path)
                     self.assertEqual(sorted(node['required']), sorted(node['properties']), path)
-                for key in ('pattern', 'minItems', 'maxItems', 'minimum', 'maximum', 'format', '$ref', 'anyOf', 'oneOf', 'allOf'):
+                for key in ('pattern', 'minItems', 'maxItems', 'uniqueItems', 'minimum', 'maximum', 'format', '$ref', 'anyOf', 'oneOf', 'allOf'):
                     self.assertNotIn(key, node, f'{path}: {key} is not supported by every provider')
                 for k, v in node.items():
                     walk(v, f'{path}.{k}')

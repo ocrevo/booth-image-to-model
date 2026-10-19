@@ -1,6 +1,6 @@
 [English](README.md) · **简体中文**
 
-# booth-image-to-model（agent skill）· v2.9.0-rc1
+# booth-image-to-model（agent skill）· v2.10.0-rc1
 
 一个 agent skill：从一张展台照片或效果图生成可编辑的参数化三维模型（JSON spec）、Blender 场景，以及去掉展厅、品牌和人物的客户渲染图。
 agent 看图并判断哪些属于展台；脚本负责拟合相机、构建几何、校验和渲染。尺寸是从单张图估计的，不是实测值。

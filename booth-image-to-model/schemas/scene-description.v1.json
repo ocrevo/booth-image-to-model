@@ -10,13 +10,61 @@
       "enum": [
         "scene-description.v1",
         "1.0",
-        "1.1"
+        "1.1",
+        "1.2"
       ],
-      "description": "\"1.1\" for new files (corner_points[].fit is part of it); \"1.0\" and \"scene-description.v1\" are the older spellings and still load."
+      "description": "\"1.2\" for new files (booth_type, open_sides and cutaway_sides are part of it); \"1.1\" (corner_points[].fit), \"1.0\" and \"scene-description.v1\" are older and still load."
     },
     "project_id": {
       "type": "string",
       "description": "Lowercase identifier for the job."
+    },
+    "booth_type": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "inline",
+        "corner",
+        "peninsula",
+        "island",
+        "other",
+        null
+      ],
+      "description": "State this first. Count the sides of the footprint that are open (no wall; visitors come in): inline = 1 open side, corner = 2 adjacent open sides, peninsula = 3 open sides, island = 4 open sides, other = anything else (for example 2 opposite sides, or an irregular outline). null = cannot tell. A side whose wall or the roof is only left out in the picture to show the inside is a cutaway, not an open side."
+    },
+    "open_sides": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string",
+        "enum": [
+          "front",
+          "back",
+          "left",
+          "right"
+        ]
+      },
+      "description": "The sides of the footprint with no wall, where visitors come in. Same words as the corner tokens: front = -D/2 (-Y), back = D/2 (+Y), left = -W/2 (-X), right = W/2 (+X); they must agree with how corner_points[].xyz is written. List each side at most once. An empty list = closed on all four sides; null = cannot tell (no topology check runs)."
+    },
+    "cutaway_sides": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string",
+        "enum": [
+          "front",
+          "back",
+          "left",
+          "right"
+        ]
+      },
+      "description": "Sides whose wall (or the roof) is only left out in the picture to show the inside (a cutaway render). The wall exists in the real booth; it is not an opening. Same side words as open_sides; never list a side that is also in open_sides. An empty list = no cutaway; null = cannot tell."
     },
     "image": {
       "type": "object",
@@ -546,6 +594,9 @@
   "required": [
     "schema_version",
     "project_id",
+    "booth_type",
+    "open_sides",
+    "cutaway_sides",
     "image",
     "floor_z",
     "known",

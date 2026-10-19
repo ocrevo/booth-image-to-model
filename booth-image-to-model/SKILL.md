@@ -4,7 +4,7 @@ description: Turn one photo or render of an exhibition booth (trade-show stand, 
 license: Apache-2.0 (see LICENSE)
 compatibility: Python 3.10+ with numpy, Pillow, scipy, jsonschema and trimesh (requirements.txt); Blender 4.0 or newer (5.2.2 tested) for .blend files and renders. The agent must be able to look at images and run shell commands.
 metadata:
-  version: "2.9.0-rc1"
+  version: "2.10.0-rc1"
   release-status: "native-tested-visual-refinement-required"
   language: "en"
 ---
@@ -30,9 +30,13 @@ next step when something is missing. Earlier evidence is not proof of what this 
 Fix the camera and the scale first, then model; do not guess the layout pixel by pixel. Every step writes into `output/<job>/`.
 
 1. **Register and probe.** `benchmark.py prepare` keeps a snapshot of the input; `boothctl.py doctor` confirms Blender.
-2. **Facts and assumptions.** Read the booth type, open sides, cut-away rendering and visible standard parts (TVs, LED walls, chairs,
-   tables, reception counter). Assume what is missing from the [design priors](references/design-priors.md) and record every
-   assumption; do not ask the user about non-critical items.
+2. **Facts and assumptions.** State the booth grammar first. *Open sides* are the sides of the footprint with no wall, where visitors
+   come in: inline = 1 open side, corner = 2 adjacent open sides, peninsula = 3, island = 4, other = anything else (for example 2
+   opposite sides). A *cutaway* is a side whose wall, or the roof, is only left out in the picture to show the inside; it is not an
+   opening. Use the corner-token words (front is −D/2, back D/2, left −W/2, right W/2) and write `booth_type`, `open_sides` and
+   `cutaway_sides` into the scene description (`null` = cannot tell, then nothing is checked). Then read the visible standard parts
+   (TVs, LED walls, chairs, tables, reception counter). Assume what is missing from the [design priors](references/design-priors.md)
+   and record every assumption; do not ask the user about non-critical items.
 3. **Corner fit.** Mark 8–10 visible outer corners (near and far, top and bottom) in `points.json`, with at least one scale anchor,
    and use **all** of them in the fit: a corner held back is a corner the camera cannot learn from. `box_fit.py` fits under a robust
    loss and checks itself by **leave-one-out**: each fitted corner is predicted from the others (`loo_median_px`, `loo_max_px`),
@@ -62,7 +66,10 @@ Fix the camera and the scale first, then model; do not guess the layout pixel by
    box_fit reports, when a `scale_checks` entry failed, or when there is no independent check at all (too few corners for
    leave-one-out and no check corners). Its `reasons` say which. Do not render the final picture on `review` until you have fixed
    the cause (re-click the named corners, add well-spread corners, correct the assumed size) or accepted the reasons and told the
-   user which estimate stays uncertain.
+   user which estimate stays uncertain. The stated booth grammar is checked too (`topology` in `compile_report.json`): `review`
+   also when the booth type does not match the open sides, when a wall was placed on an open side (it is left out and listed in
+   `dropped`; a wall on a cutaway side is kept), or when the fitted camera stands outside closed sides only, which usually means
+   front/back or left/right were swapped in the corner tokens (a good fit cannot show that). Fix the labels, not the geometry.
 5. **Preview, at most three rounds.** `boothctl.py preview` (about 10–25 s) renders at the source camera and writes a four-pane sheet
    (picture, render, overlay, outline with corner errors); it also reports coplanar overlaps (black or flickering faces). With
    `--context` it adds advisory design checks. Fix topology and position before colour.

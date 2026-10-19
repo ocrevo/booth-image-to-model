@@ -1,4 +1,4 @@
-Test results directory: output/_validation/release-check-2.9.0-rc1b
+Test results directory: output/_validation/release-check-2.10.0-rc1
 Native preflight: {"requested": "<blender>/blender.exe", "available": true, "path": "<blender>/blender.exe", "probe_stdout": "Blender 5.2.2 LTS\n\tbuild date: 2026-09-15\n\tbuild time: 01:37:04\n\tbuild commit date: 2026-09-14\n\tbuild commit time: 15:14\n\tbuild hash: d13f752e3b9c\n\tbuild branch: blender-v5.2-release\n\tbuild platform: Windows\n\tbuild type: Release\n\tbuild c flags:  /W3 -Werror=implicit-function-declaration -Werror=return-type -Wno-tautological-compare -Wno-unknown-pragmas -Wno-char-subscripts -Wstrict-prototypes -Wmissing-prototypes -Wunused-parameter -Wundef -Wundef-prefix -Werror=unguarded-availability-new /DWIN32 /D_WINDOWS /MP /nologo /J /Gy /Gd /showFilenames -Wno-unused-command-line-argument -Wno-microsoft-enum-forward-reference /clang:-funsigned-char /clang:-fno-strict-aliasing /clang:-ffp-contract=off -march=x86-64-v2 \n\tbuild c++ flags:  /W3 -Wno-tautological-compare -Wno-unknown-pragmas -Wno-char-subscripts -Wno-overloaded-virtual -Wno-sign-compare -Wno-invalid-offsetof -Wno-suggest-override -Wundef -Wundef-prefix -Wunused-parameter -Wmismatched-tags -Werror=unguarded-availability-new /DWIN32 /D_WINDOWS /EHsc  /Gy /MP /nologo /J /Gd /showFilenames /EHsc -Wno-unused-command-line-argument -Wno-microsoft-enum-forward-reference /clang:-funsigned-char /clang:-fno-strict-aliasing /clang:-ffp-contract=off -march=x86-64-v2 \n\tbuild link flags: /MACHINE:X64  /SUBSYSTEM:CONSOLE /STACK:2097152 /ignore:4049 /ignore:4217 /ignore:4221\n\tbuild system: CMake\n", "probe_stderr": "", "returncode": 0}
 test_builder_checks_real_source_size_before_writing_scene (test_audit_contract.NativeSourceContractTests.test_builder_checks_real_source_size_before_writing_scene) ... ok
 test_camera_projection_requires_its_parameters (test_audit_contract.SyntheticContractTests.test_camera_projection_requires_its_parameters) ... ok
@@ -366,9 +366,63 @@ test_require_native_blocks_before_discovery (test_test_runner.TestRunnerTests.te
 test_selected_blender_configures_both_native_interfaces (test_test_runner.TestRunnerTests.test_selected_blender_configures_both_native_interfaces) ... ok
 test_source_change_during_execution_blocks_release_evidence (test_test_runner.TestRunnerTests.test_source_change_during_execution_blocks_release_evidence) ... ok
 test_unrelated_cwd_retains_unicode_stdout_stderr_and_test_details (test_test_runner.TestRunnerTests.test_unrelated_cwd_retains_unicode_stdout_stderr_and_test_details) ... ok
+test_a_camera_close_to_the_edge_is_not_outside_it (test_topology.CameraSide.test_a_camera_close_to_the_edge_is_not_outside_it) ... ok
+test_a_camera_on_each_side_against_each_single_open_side (test_topology.CameraSide.test_a_camera_on_each_side_against_each_single_open_side) ... ok
+test_a_cutaway_side_counts_for_the_camera_but_is_not_open (test_topology.CameraSide.test_a_cutaway_side_counts_for_the_camera_but_is_not_open) ... ok
+test_front_back_mirroring_is_caught_when_the_only_open_side_is_the_front (test_topology.CameraSide.test_front_back_mirroring_is_caught_when_the_only_open_side_is_the_front) ... ok
+test_left_right_mirroring_is_not_seen_by_the_camera_when_it_stays_outside_an_open_side (test_topology.CameraSide.test_left_right_mirroring_is_not_seen_by_the_camera_when_it_stays_outside_an_open_side)
+The honest limit: a camera in front of an open front is outside it whether or not left and right are swapped. ... ok
+test_sides_beyond (test_topology.CameraSide.test_sides_beyond) ... ok
+test_the_camera_may_be_outside_any_one_of_several_open_sides (test_topology.CameraSide.test_the_camera_may_be_outside_any_one_of_several_open_sides) ... ok
+test_the_fit_must_say_where_the_camera_is (test_topology.CameraSide.test_the_fit_must_say_where_the_camera_is) ... ok
+test_warn_never_sends_the_gate_to_review (test_topology.CameraSide.test_warn_never_sends_the_gate_to_review) ... ok
+test_a_camera_that_looks_in_through_closed_sides_gives_review (test_topology.Compile.test_a_camera_that_looks_in_through_closed_sides_gives_review) ... ok
+test_a_consistent_grammar_that_drops_nothing_leaves_the_spec_unchanged (test_topology.Compile.test_a_consistent_grammar_that_drops_nothing_leaves_the_spec_unchanged) ... ok
+test_a_refused_grammar_writes_nothing (test_topology.Compile.test_a_refused_grammar_writes_nothing) ... ok
+test_a_scene_without_a_grammar_gets_exactly_the_gate_it_got_before (test_topology.Compile.test_a_scene_without_a_grammar_gets_exactly_the_gate_it_got_before) ... ok
+test_a_type_that_does_not_match_gives_review_but_still_builds (test_topology.Compile.test_a_type_that_does_not_match_gives_review_but_still_builds) ... ok
+test_a_wall_on_a_cutaway_side_is_kept (test_topology.Compile.test_a_wall_on_a_cutaway_side_is_kept) ... ok
+test_a_wall_on_an_open_side_is_dropped_with_a_reason (test_topology.Compile.test_a_wall_on_an_open_side_is_dropped_with_a_reason) ... ok
+test_old_scene_files_compile_byte_identically (test_topology.Compile.test_old_scene_files_compile_byte_identically) ... ok
+test_several_failures_give_several_reasons_in_a_fixed_order (test_topology.Compile.test_several_failures_give_several_reasons_in_a_fixed_order) ... ok
+test_the_fixture_camera_is_where_the_tests_assume (test_topology.Compile.test_the_fixture_camera_is_where_the_tests_assume) ... ok
+test_the_report_carries_the_topology_unchanged_on_disk_and_in_the_summary (test_topology.Compile.test_the_report_carries_the_topology_unchanged_on_disk_and_in_the_summary) ... ok
+test_the_spec_has_no_wall_on_a_declared_open_side (test_topology.Compile.test_the_spec_has_no_wall_on_a_declared_open_side) ... ok
+test_topology_reasons_come_after_the_fit_reasons (test_topology.Compile.test_topology_reasons_come_after_the_fit_reasons) ... ok
+test_each_failed_check_gives_its_plain_sentence (test_topology.GateReasons.test_each_failed_check_gives_its_plain_sentence) ... ok
+test_ok_warn_and_not_checked_add_nothing (test_topology.GateReasons.test_ok_warn_and_not_checked_add_nothing) ... ok
+test_the_gate_keeps_its_own_reasons_first_and_is_not_edited (test_topology.GateReasons.test_the_gate_keeps_its_own_reasons_first_and_is_not_edited) ... ok
+test_the_quality_gate_function_is_untouched (test_topology.GateReasons.test_the_quality_gate_function_is_untouched) ... ok
+test_the_reasons_use_no_engineering_words (test_topology.GateReasons.test_the_reasons_use_no_engineering_words) ... ok
+test_a_scene_that_is_not_a_dict_states_nothing (test_topology.NotStated.test_a_scene_that_is_not_a_dict_states_nothing) ... ok
+test_cutaway_null_counts_as_no_cutaway_not_as_a_reason_to_skip (test_topology.NotStated.test_cutaway_null_counts_as_no_cutaway_not_as_a_reason_to_skip) ... ok
+test_nothing_runs_without_the_open_sides (test_topology.NotStated.test_nothing_runs_without_the_open_sides) ... ok
+test_nulls_give_not_checked_and_leave_the_gate_alone (test_topology.NotStated.test_nulls_give_not_checked_and_leave_the_gate_alone) ... ok
+test_the_sides_without_a_type_still_check_everything_but_the_type (test_topology.NotStated.test_the_sides_without_a_type_still_check_everything_but_the_type) ... ok
+test_a_1_2_scene_validates_and_so_do_the_older_versions_with_and_without_the_keys (test_topology.SchemaAndUpgrade.test_a_1_2_scene_validates_and_so_do_the_older_versions_with_and_without_the_keys) ... ok
+test_a_side_listed_twice_or_both_open_and_cut_away_is_refused (test_topology.SchemaAndUpgrade.test_a_side_listed_twice_or_both_open_and_cut_away_is_refused) ... ok
+test_a_type_that_disagrees_with_the_sides_is_not_a_scene_error_but_a_problem_a_reader_can_use (test_topology.SchemaAndUpgrade.test_a_type_that_disagrees_with_the_sides_is_not_a_scene_error_but_a_problem_a_reader_can_use) ... ok
+test_every_type_and_every_set_of_sides_is_accepted (test_topology.SchemaAndUpgrade.test_every_type_and_every_set_of_sides_is_accepted) ... ok
+test_only_keywords_every_strict_provider_knows_are_used (test_topology.SchemaAndUpgrade.test_only_keywords_every_strict_provider_knows_are_used) ... ok
+test_the_strict_schema_requires_every_key_and_allows_null (test_topology.SchemaAndUpgrade.test_the_strict_schema_requires_every_key_and_allows_null) ... ok
+test_the_vocabulary_is_enforced_by_the_schema (test_topology.SchemaAndUpgrade.test_the_vocabulary_is_enforced_by_the_schema) ... ok
+test_upgrade_does_both_shims_on_the_oldest_files (test_topology.SchemaAndUpgrade.test_upgrade_does_both_shims_on_the_oldest_files) ... ok
+test_upgrade_fills_the_booth_grammar_with_null_and_never_edits_the_input (test_topology.SchemaAndUpgrade.test_upgrade_fills_the_booth_grammar_with_null_and_never_edits_the_input) ... ok
+test_upgrade_keeps_what_is_stated_and_fills_only_what_is_missing (test_topology.SchemaAndUpgrade.test_upgrade_keeps_what_is_stated_and_fills_only_what_is_missing) ... ok
+test_a_side_listed_twice_counts_once (test_topology.TypeTable.test_a_side_listed_twice_counts_once) ... ok
+test_every_declared_type_against_every_set_of_open_sides (test_topology.TypeTable.test_every_declared_type_against_every_set_of_open_sides) ... ok
+test_open_sides_add_up_to_a_type (test_topology.TypeTable.test_open_sides_add_up_to_a_type) ... ok
+test_the_vocabulary_is_the_documented_one (test_topology.TypeTable.test_the_vocabulary_is_the_documented_one) ... ok
+test_two_opposite_sides_are_not_a_corner (test_topology.TypeTable.test_two_opposite_sides_are_not_a_corner) ... ok
+test_a_booth_open_on_all_sides_has_no_closed_side_to_wall (test_topology.WallsAndClosedSides.test_a_booth_open_on_all_sides_has_no_closed_side_to_wall) ... ok
+test_a_cutaway_side_needs_no_wall_and_every_flat_part_counts_as_one (test_topology.WallsAndClosedSides.test_a_cutaway_side_needs_no_wall_and_every_flat_part_counts_as_one) ... ok
+test_a_wall_on_a_cutaway_side_is_fine (test_topology.WallsAndClosedSides.test_a_wall_on_a_cutaway_side_is_fine) ... ok
+test_a_wall_on_an_open_side_fails_and_is_named (test_topology.WallsAndClosedSides.test_a_wall_on_an_open_side_fails_and_is_named) ... ok
+test_closed_sides_without_a_wall_are_information_only (test_topology.WallsAndClosedSides.test_closed_sides_without_a_wall_are_information_only) ... ok
+test_only_a_wall_component_counts_as_a_wall_on_an_open_side (test_topology.WallsAndClosedSides.test_only_a_wall_component_counts_as_a_wall_on_an_open_side) ... ok
 
 ----------------------------------------------------------------------
-Ran 364 tests in 230.504s
+Ran 417 tests in 270.016s
 
 OK
 Final status: passed

@@ -8,6 +8,10 @@ pixels onto the floor or onto a booth edge (camera_math), builds it with the com
 coplanar faces apart, validates the result and writes spec.json, box_fit.json and compile_report.json.
 Nothing is written to the output folder until the whole compile has run. Needs numpy, scipy, Pillow and jsonschema like
 the rest of the skill. No model call happens here.
+
+The scene may also state the booth grammar: its type (inline, corner, peninsula, island, other), which sides are open and which
+are only cut away in the picture. The compiler uses that as a check (report["topology"]); null means not stated, and nothing is
+checked then.
 """
 from __future__ import annotations
 import argparse
@@ -37,6 +41,18 @@ FIT_KEYS = ('status', 'rms_px', 'max_px', 'dims_m', 'dim_source', 'worst_points'
             'loss', 'n_fit', 'n_check', 'check_points', 'check_median_px', 'check_max_px',
             'loo_reliable', 'loo_errors_px', 'loo_median_px', 'loo_max_px', 'outliers', 'dropped', 'rms_kept_px', 'n_unknown',
             'scale_checks', 'limits')
+SIDES = ('front', 'back', 'left', 'right')       # the corner-token words: front -D/2 (-Y), back D/2 (+Y), left -W/2 (-X), right W/2 (+X)
+BOOTH_TYPES = ('inline', 'corner', 'peninsula', 'island', 'other')
+TOPOLOGY_KEYS = ('booth_type', 'open_sides', 'cutaway_sides')
+ADJACENT = {frozenset(pair) for pair in (('front', 'left'), ('front', 'right'), ('back', 'left'), ('back', 'right'))}
+WALL_TYPES = ('wall', 'wall_panel', 'led_wall', 'tv')     # parts that stand on or hang on a wall plane: a side that has one is walled
+CAMERA_MARGIN_M = 0.25                           # the camera must be this far beyond a footprint edge to count as outside that side
+TOPOLOGY_CHECKS = ('type_matches_sides', 'wall_on_open_side', 'closed_side_without_wall', 'camera_side')
+TOPOLOGY_REASONS = {                             # a failed check -> the plain sentence the quality gate gives
+    'type_matches_sides': 'the booth type does not match the open sides',
+    'wall_on_open_side': 'a wall was placed on an open side and left out',
+    'camera_side': 'the camera looks in through closed sides: front/back or left/right may be swapped',
+}
 MACROS = {'counter', 'round_table', 'shell_chair', 'planter', 'louvre_wall', 'tv', 'led_wall', 'spotlights'}
 COMMON = {'id', 'type', 'scope', 'evidence', 'roi_px', 'color_hex'}
 # Fields each type reads. A field the scene fills but the type does not read is reported, never silently dropped.
@@ -79,13 +95,20 @@ def _int(v):
 
 
 def upgrade_scene(scene):
-    """Scene files written before schema 1.1 have no corner_points[].fit: fill null (= used in the fit) so the strict schema,
-    which requires the key, accepts them. Returns the same object when nothing is missing, otherwise a copy; never edits the input."""
-    points = scene.get('corner_points') if isinstance(scene, dict) else None
-    if not isinstance(points, list) or all(not isinstance(p, dict) or 'fit' in p for p in points):
+    """Scene files written before schema 1.1 have no corner_points[].fit: fill null (= used in the fit). Files written before 1.2
+    have no booth_type, open_sides or cutaway_sides: fill null (= not stated, no topology check). The strict schema requires all of
+    these keys, so it accepts the upgraded copy. Returns the same object when nothing is missing, otherwise a copy; never edits the input."""
+    if not isinstance(scene, dict):
         return scene
-    out = dict(scene)
-    out['corner_points'] = [dict(p, fit=None) if isinstance(p, dict) and 'fit' not in p else p for p in points]
+    out = scene
+    points = scene.get('corner_points')
+    if isinstance(points, list) and any(isinstance(p, dict) and 'fit' not in p for p in points):
+        out = dict(scene)
+        out['corner_points'] = [dict(p, fit=None) if isinstance(p, dict) and 'fit' not in p else p for p in points]
+    missing = [k for k in TOPOLOGY_KEYS if k not in scene]
+    if missing:
+        out = dict(out)
+        out.update({k: None for k in missing})
     return out
 
 
@@ -277,6 +300,8 @@ def validate_scene(scene):
         for other in ids - {a}:
             if other.startswith(a + '_'):
                 bad('ID', f'components.{other}', f'collides with the parts of macro {a!r} (they are named {a}_...)')
+    for e in topology_problems(scene, include_type=False):
+        bad(e['code'], e['where'], e['message'])
     return errors
 
 
@@ -472,6 +497,133 @@ def fit_note(fit):
     return note + (' The camera was refitted without the clicks ' + ', '.join(dropped) + '.' if dropped else '')
 
 
+# ------------------------------------------------------------------ booth grammar (topology)
+def topology_declaration(scene):
+    """-> (booth_type, open_sides, cutaway_sides) as the scene states them. None = not stated (null, or unusable)."""
+    if not isinstance(scene, dict):
+        return None, None, None
+
+    def sides(value):
+        return [v for v in value if isinstance(v, str)] if isinstance(value, list) else None
+    booth_type = scene.get('booth_type')
+    return (booth_type if isinstance(booth_type, str) else None, sides(scene.get('open_sides')), sides(scene.get('cutaway_sides')))
+
+
+def expected_booth_type(open_sides):
+    """The booth type the open sides add up to: 1 = inline, 2 adjacent = corner, 3 = peninsula, 4 = island, anything else = other
+    (no open side, or 2 opposite sides). A side listed twice counts once."""
+    sides = set(open_sides)
+    if len(sides) == 2:
+        return 'corner' if frozenset(sides) in ADJACENT else 'other'
+    return {1: 'inline', 3: 'peninsula', 4: 'island'}.get(len(sides), 'other')
+
+
+def topology_problems(scene, include_type=True):
+    """Contradictions inside the stated booth grammar, as {code, where, message}. The schema cannot say that a list has no repeats,
+    so a side listed twice, or one that is both open and a cutaway, is reported here (validate_scene refuses such a file).
+    With include_type, a booth_type that disagrees with the open sides is reported too. The compiler does not refuse that (it says
+    so in report["topology"] and sends the quality gate to review); a reader can use it to ask again."""
+    booth_type, open_sides, cutaway = topology_declaration(scene)
+    out = []
+    for key, sides in (('open_sides', open_sides or []), ('cutaway_sides', cutaway or [])):
+        for side in dict.fromkeys(x for x in sides if sides.count(x) > 1):
+            out.append({'code': 'TOPOLOGY', 'where': key, 'message': f'{side!r} is listed more than once; list each side at most once'})
+    for side in dict.fromkeys(x for x in open_sides or [] if x in (cutaway or [])):
+        out.append({'code': 'TOPOLOGY', 'where': 'cutaway_sides',
+                    'message': f'{side!r} is in both open_sides and cutaway_sides; a side is either open or only cut away in the picture'})
+    if include_type and booth_type in BOOTH_TYPES and booth_type != 'other' and open_sides is not None:
+        expected = expected_booth_type(open_sides)
+        if expected != booth_type:
+            out.append({'code': 'TOPOLOGY', 'where': 'booth_type',
+                        'message': f'booth_type {booth_type!r} does not match open_sides {sorted(set(open_sides))}: '
+                                   f'{len(set(open_sides))} open side(s) make a {expected!r} booth'})
+    return out
+
+
+def walls_on_open_sides(scene):
+    """Ids of the wall components whose plane is a declared open side (the compiler leaves them out). [] when open_sides is null."""
+    open_sides = set(topology_declaration(scene)[1] or ())
+    return [c['id'] for c in scene.get('components') or [] if isinstance(c, dict) and c.get('type') == 'wall' and c.get('plane') in open_sides]
+
+
+def sides_beyond(x, y, width, depth, margin=CAMERA_MARGIN_M):
+    """The sides of the footprint (centred on the origin, X right, Y back) that the point (x, y) lies beyond by more than margin."""
+    return [side for side, outside in (('front', y < -depth / 2 - margin), ('back', y > depth / 2 + margin),
+                                       ('left', x < -width / 2 - margin), ('right', x > width / 2 + margin)) if outside]
+
+
+def topology_report(scene, fit):
+    """-> {"booth_type", "open_sides", "cutaway_sides", "checks": [{"id", "status", "message"}]} for report["topology"].
+
+    status is ok | warn | fail | not_checked. Nothing is checked while open_sides is null; the type check also needs booth_type.
+    cutaway_sides null counts as no cutaway. A cutaway side is not open (a wall there is allowed), but the camera may look in
+    through it. Only a fail sends the quality gate to review (apply_topology); warn is information."""
+    booth_type, open_sides, cutaway = topology_declaration(scene)
+    checks = []
+
+    def add(cid, status, message):
+        checks.append({'id': cid, 'status': status, 'message': message})
+    if open_sides is None:
+        for cid in TOPOLOGY_CHECKS:
+            add(cid, 'not_checked', 'the open sides are not stated (open_sides is null)')
+        return {'booth_type': booth_type, 'open_sides': None, 'cutaway_sides': cutaway, 'checks': checks}
+    opened, cut = set(open_sides), set(cutaway or ())
+    named = ', '.join(s for s in SIDES if s in opened) or 'none'
+
+    if booth_type is None:
+        add('type_matches_sides', 'not_checked', 'the booth type is not stated (booth_type is null)')
+    elif booth_type == 'other':
+        add('type_matches_sides', 'ok', f'booth type other fits any open sides (open: {named})')
+    else:
+        expected = expected_booth_type(opened)
+        if expected == booth_type:
+            add('type_matches_sides', 'ok', f'{booth_type} fits the open sides ({named})')
+        else:
+            add('type_matches_sides', 'fail',
+                f'booth type {booth_type} does not fit the open sides ({named}): {len(opened)} open side(s) make a {expected} booth')
+
+    dropped = walls_on_open_sides(scene)
+    if dropped:
+        add('wall_on_open_side', 'fail', 'wall(s) placed on an open side were left out: '
+            + ', '.join(f"{c['id']} ({c['plane']})" for c in scene['components'] if c['id'] in dropped))
+    else:
+        add('wall_on_open_side', 'ok', 'no wall stands on an open side')
+
+    walled = {c.get('plane') for c in scene.get('components') or []
+              if isinstance(c, dict) and c.get('type') in WALL_TYPES and c.get('id') not in dropped}
+    bare = [s for s in SIDES if s not in opened and s not in cut and s not in walled]
+    if bare:
+        add('closed_side_without_wall', 'warn', 'closed side(s) with no wall in the scene: ' + ', '.join(bare)
+            + ' (information only; the wall may be hidden or cut away in the picture)')
+    else:
+        add('closed_side_without_wall', 'ok', 'every closed side has a wall, or no side is closed')
+
+    cam, dims = ((fit or {}).get('camera') or {}).get('position'), (fit or {}).get('dims_m') or {}
+    if not (isinstance(cam, (list, tuple)) and len(cam) >= 2 and all(_num(v) for v in cam[:2]) and _num(dims.get('W')) and _num(dims.get('D'))):
+        add('camera_side', 'not_checked', 'the fit has no camera position or footprint to compare')
+    else:
+        beyond = sides_beyond(cam[0], cam[1], dims['W'], dims['D'])
+        where = f'the camera is at x {cam[0]:.2f} m, y {cam[1]:.2f} m'
+        looking = [s for s in beyond if s in opened or s in cut]
+        if looking:
+            add('camera_side', 'ok', f"{where}, outside the {' and '.join(looking)} side")
+        elif beyond:
+            add('camera_side', 'fail', f"{where}, outside the {' and '.join(beyond)} side only, which "
+                + ('is closed' if len(beyond) == 1 else 'are closed') + ': the labels may be mirrored (front/back or left/right swapped)')
+        else:
+            add('camera_side', 'warn', f"{where}, not outside any side of the {dims['W']:g} x {dims['D']:g} m footprint: cannot tell")
+    return {'booth_type': booth_type, 'open_sides': list(open_sides), 'cutaway_sides': cutaway, 'checks': checks}
+
+
+def apply_topology(gate, topology):
+    """The quality gate plus the plain reasons of the failed topology checks (status review when there is one). Returns the gate
+    itself when no check failed, so a scene that states nothing gets exactly the gate it got before."""
+    reasons = [TOPOLOGY_REASONS[c['id']] for c in topology['checks'] if c['status'] == 'fail' and c['id'] in TOPOLOGY_REASONS]
+    if not reasons:
+        return gate
+    return dict(gate, status='review', reasons=list(gate['reasons']) + reasons)
+
+
 # ------------------------------------------------------------------ compiler
 def _rgba(hex_color, default):
     if not hex_color:
@@ -504,6 +656,7 @@ class Compiler:
         self.iw, self.ih = scene['image']['width'], scene['image']['height']
         self.b = cm.SpecBuilder(source_image, self.iw, self.ih, scene['project_id'])
         self.report = {'components': [], 'assumed': [], 'adjustments': [], 'dropped': [], 'warnings': ignored_fields(scene)}
+        self.open_sides = set(topology_declaration(scene)[1] or ())      # a side that is open has no wall
 
     # -- helpers
     def assume(self, cid, what, value):
@@ -829,6 +982,9 @@ class Compiler:
         b.box('floor', 'booth_floor', 'floor', (self.X0, self.X1), (self.Y0, self.Y1), (self.zf - FLOOR_T, self.zf), CARPET,
               critical=True, px=px, inferred=px is None, note='Floor from the stated footprint; colour is a placeholder.')
         for c in sc['components']:
+            if c['type'] == 'wall' and c['plane'] in self.open_sides:     # topology check: a wall cannot stand on an open side
+                rep['dropped'].append({'id': c['id'], 'reason': 'wall on an open side'})
+                continue
             before = len(b.components)
             marks = {k: len(rep[k]) for k in ('assumed', 'adjustments', 'warnings')}
             try:
@@ -992,7 +1148,8 @@ def compile_scene(scene, image_path, out_dir, fit=None, seeds=40):
         report['warnings'].append('fit: ' + advice)
     report['fit'] = {k: fit.get(k) for k in FIT_KEYS}
     report['fit']['ambiguity_hint'] = ambiguity_hint
-    report['quality_gate'] = quality_gate(fit)
+    report['topology'] = topology_report(scene, fit)
+    report['quality_gate'] = apply_topology(quality_gate(fit), report['topology'])
     report['valid'] = check['valid']
     report['validation_errors'] = check['errors'][:20]
     report['coplanar_unresolved'] = [{'ids': w['ids'], 'plane': w['plane']} for w in leftover]
@@ -1027,7 +1184,7 @@ def run(scene_path, image_path, out_dir, fit_path=None, seeds=40):
     summary.update(fit=report['fit']['status'], rms_px=report['fit']['rms_px'], fit_warnings=(report['fit']['warnings'] or [])[:3],
                    fit_check={k: report['fit'][k] for k in ('n_fit', 'n_check', 'check_median_px', 'check_max_px', 'loo_reliable',
                                                            'loo_median_px', 'loo_max_px', 'outliers')},
-                   quality_gate=report['quality_gate'], dropped=report['dropped'], adjustments=len(report['adjustments']), assumed=len(report['assumed']),
+                   quality_gate=report['quality_gate'], topology=report['topology'], dropped=report['dropped'], adjustments=len(report['adjustments']), assumed=len(report['assumed']),
                    warnings=report['warnings'][:10], validation_errors=report['validation_errors'][:5], spec=str(Path(out_dir) / 'spec.json'))
     return (0 if report['valid'] else 2), summary
 

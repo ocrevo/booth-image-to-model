@@ -1,6 +1,6 @@
 {
   "name": "booth-image-to-model-web",
-  "version": "2.9.0-rc1",
+  "version": "2.10.0-rc1",
   "private": true,
   "type": "module",
   "description": "Web studio (local server, one window from picture to render) and standalone spec editor for booth-image-to-model. The deployable static site is app/; server/, tests/ and tools/ are not served.",

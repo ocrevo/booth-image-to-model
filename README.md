@@ -138,5 +138,5 @@ other agent at its `SKILL.md`.
 ## Project
 
 The repository was renamed from `Booth2CAD` to `booth-image-to-model`; old links redirect.
-Version 2.9.0-rc1. Contributions are welcome under the [Apache License 2.0](LICENSE); please read [CONTRIBUTING.md](CONTRIBUTING.md)
+Version 2.10.0-rc1. Contributions are welcome under the [Apache License 2.0](LICENSE); please read [CONTRIBUTING.md](CONTRIBUTING.md)
 first and never attach client pictures. To cite the project, use [CITATION.cff](CITATION.cff).

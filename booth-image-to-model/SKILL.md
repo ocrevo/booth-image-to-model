@@ -4,7 +4,7 @@ description: Turn one photo or render of an exhibition booth (trade-show stand, 
 license: Apache-2.0 (see LICENSE)
 compatibility: Python 3.10+ with numpy, Pillow, scipy, jsonschema and trimesh (requirements.txt); Blender 4.0 or newer (5.2.2 tested) for .blend files and renders. The agent must be able to look at images and run shell commands.
 metadata:
-  version: "2.8.0-rc1"
+  version: "2.9.0-rc1"
   release-status: "native-tested-visual-refinement-required"
   language: "en"
 ---
@@ -33,18 +33,36 @@ Fix the camera and the scale first, then model; do not guess the layout pixel by
 2. **Facts and assumptions.** Read the booth type, open sides, cut-away rendering and visible standard parts (TVs, LED walls, chairs,
    tables, reception counter). Assume what is missing from the [design priors](references/design-priors.md) and record every
    assumption; do not ask the user about non-critical items.
-3. **Corner fit.** Mark 6–10 visible outer corners (near and far, top and bottom) in `points.json`, with at least one scale anchor,
-   and run `box_fit.py`. Require `status=fitted` (RMS within 4 px). On `high_residual` check the worst points (`worst_points`; a bad
-   point spreads its error, so it is not always first). On `ambiguous` add points as `ambiguity_hint` says (for example a numeric
-   roof height). Then draw the fitted box and a 0.5 m grid over the picture with `boothctl.py overlay` to check the camera. When the
-   scale rests on one assumption, add `scale_checks` (bottom and top pixels of an upright standard part plus its expected height);
-   box_fit measures them with the fitted camera and warns when they disagree.
+3. **Corner fit.** Mark 8–10 visible outer corners (near and far, top and bottom) in `points.json`, with at least one scale anchor,
+   and use **all** of them in the fit: a corner held back is a corner the camera cannot learn from. `box_fit.py` fits under a robust
+   loss and checks itself by **leave-one-out**: each fitted corner is predicted from the others (`loo_median_px`, `loo_max_px`),
+   and clicks the others cannot predict are named in `outliers` and left out of a final refit (`dropped`). That check is computed
+   only when enough equations are left over (`limits.loo_min_fit` says how many fitted corners this fit needs, usually 8 or more
+   with one size given). With fewer, `loo_reliable` is `false` and the leave-one-out numbers are `null`: it never guesses a name.
+   Optional: with 11 or more corners, or when you want held-out points of your own choosing, mark 2 corners `"fit": false`
+   (**check corners**). They are projected with the fitted camera and never used in the fit; the error is `check_median_px`. Each one
+   costs a fitted corner, so do not use them with 8–10 corners. `box_fit.py` prints ONE JSON object (the same as `--output`;
+   warnings and the re-click `hint` are inside it) and exits 0 (`fitted`), 3 (needs attention: `high_residual`, `ambiguous` or
+   `check_failed`) or 2 (blocked; the JSON has the `reason`). Require `status=fitted`. On `high_residual`, `check_failed` or listed
+   `outliers`, re-click the named corners first (a bad click spreads its error, so `worst_points` is not always the culprit; `outliers`
+   is the better guide), then follow `hint`; on `ambiguous` add points as the hint says (for example a numeric roof height). Then
+   draw the fitted box and a 0.5 m grid over the picture with `boothctl.py overlay` to check the camera (check corners are orange
+   squares, named outliers have a magenta ring). A wrong assumed size does not show in any pixel error: when the scale rests on one
+   assumption, add `scale_checks` (bottom and top pixels of an upright standard part plus its expected height); box_fit measures
+   them with the fitted camera and a failed one sends the quality gate to `review`. Assume at most the one dimension you cannot
+   read; never assume all of W, D and H.
 4. **Write the spec.** Either write what you read as a **scene description** (pixels and plain numbers; format in
-   [scene description](references/scene-description.md) and `schemas/scene-description.v1.json`) and compile it with
+   [scene description](references/scene-description.md) and `schemas/scene-description.v1.json`; `corner_points[].fit` is `null` for
+   every corner you fit, and `false` only for optional check corners) and compile it with
    `boothctl.py compile --scene scene.json --image <picture> --out <folder>`, which fits, unprojects, clamps, groups and validates in
    one step; or copy `templates/build_spec_template.py` and write the spec with the `SpecBuilder` and macros of `components.py`
-   (counter, round table, shell chair, louvres, grid, planter, wall TV, shelves). Place wall and floor parts by unprojecting pixels with
-   `camera_math`, not by trial.
+   (counter, round table, shell chair, louvres, grid, planter, wall TV, shelves). Place wall and floor parts by unprojecting pixels
+   with `camera_math`, not by trial. Read `quality_gate` in the compile output (it is also in `compile_report.json`). It is `review`
+   when the fit status is not `fitted`, when `outliers` are named, when the check or leave-one-out errors are above the `limits`
+   box_fit reports, when a `scale_checks` entry failed, or when there is no independent check at all (too few corners for
+   leave-one-out and no check corners). Its `reasons` say which. Do not render the final picture on `review` until you have fixed
+   the cause (re-click the named corners, add well-spread corners, correct the assumed size) or accepted the reasons and told the
+   user which estimate stays uncertain.
 5. **Preview, at most three rounds.** `boothctl.py preview` (about 10–25 s) renders at the source camera and writes a four-pane sheet
    (picture, render, overlay, outline with corner errors); it also reports coplanar overlaps (black or flickering faces). With
    `--context` it adds advisory design checks. Fix topology and position before colour.
@@ -81,8 +99,9 @@ a reception top corner `["?cx", "?cy", 1.05]`. Assumed values go into `assumed` 
 **Rendering notes.** Without a discrete GPU, headless Workbench may crash; `preview` retries with low-sample Cycles by itself.
 Workbench is flat-lit and shows no emission or exposure; `preview --client-look` also renders the final client look (Cycles, grey
 backdrop) and reports clipped pixels with a suggested `--client-exposure` (default −1.0 EV). In the preview report, landmark errors
-split into `fit` (used by the fit, circular) and `check` (independent, `fit=false`); judge by `check` and keep 2–4 corners out of the
-fit. On a CPU, 32 samples with denoising are enough for the final; render high definition only once. High-definition frames are capped
+split into `fit` (used by the fit, so circular) and `check` (independent: check corners with `fit=false`, and corners that `box_fit`
+dropped). When every corner was fitted, `check` can be empty: the independent evidence is then `box_fit`'s leave-one-out error and the
+`quality_gate`, not the preview's `fit` errors. On a CPU, 32 samples with denoising are enough for the final; render high definition only once. High-definition frames are capped
 at 5 MP (`--hd-max-mp`; the scale is lowered and recorded in `build_report.json`): 4.9 MP rendered, 6.9 MP ran the denoiser out of
 memory on a 16 GB laptop. A first `build_report.json` is written before the high-definition stage (`partial: true`).
 

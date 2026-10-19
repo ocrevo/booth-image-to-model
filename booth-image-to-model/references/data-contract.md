@@ -32,6 +32,12 @@ material.color 默认 linear；color_space=srgb 将颜色转为 linear 后写入
 ## 快速路线的输入与输出
 
 - `box_fit.py`：输入为像素角点和带符号的坐标表达式，输出 `camera`（`fit_status=landmark_fitted`）、W/D/H、自由量、逐点误差和多起点解的离散度；`dim_source` 区分 given、assumed、fitted。它与 `camera_fit.py` 不同：后者在固定几何上精修相机，前者同时求比例，用于建模前。
+  - 拟合用鲁棒损失（`loss`）。独立检查默认是留一法：`loo_reliable`、`loo_errors_px`、`loo_median_px`、`loo_max_px`、`outliers`（点名的角会从最终相机里剔除，写在 `dropped`）。拿掉一个角后多余方程不够时，`loo_reliable` 为 `false`，`loo_*` 为 `null`，`outliers` 为空：不点猜出来的名字。
+  - 点上的 `fit: false` 是可选功能（角点 ≥ 11 个，或想自己指定留出点）：该点只投影、不参与拟合，误差在 `check_points`、`check_median_px`、`check_max_px`。每个检查点都少一个拟合点，8–10 个角时不用。
+  - `limits` 是判断状态用的像素上限（已按图大小放宽，调用方不要另设一套）；`scale_checks` 是标准件的尺寸核对结果（`id`、`expected_m`、`measured_m`、`ratio`、`ok`，量不出来的 `ok` 为 `false` 并带 `error`）；`hint` 是“重新点一下”这类建议，`ambiguity_hint` 只放真正的歧义提示。
+  - 标准输出只打印**一个** JSON（与 `--output` 相同，警告和 `hint` 都在里面）。退出码：0 = `fitted`，3 = 需要处理（`high_residual`、`ambiguous`、`check_failed`），2 = `blocked`（JSON 里有 `reason`）。
+- `draft_compile.py`（`boothctl.py compile`）：把 `box_fit` 的结果复制进 `compile_report.json` 的 `fit`（缺的键写 `null`），并写 `quality_gate`：`{status: pass | review, reasons: [...]}`。`review` 的条件：状态不是 `fitted`、点名了出错的角（仅留一法可靠时）、独立误差超过 `limits`、`scale_checks` 有没通过的项、或根本没有独立信号。质量门只读 `box_fit` 的 JSON，不阻止编译，也不改退出码。细节见 [scene-description.md](scene-description.md)。
+- `overlay.py`：被拟合的角画绿圈；检查点（`fit: false`）画橙色方框，不计入 `max_point_err_px`（另报 `max_check_err_px`）；被点名的 `outliers` 再加一圈品红色环。
 - `camera_math.py`：与 blender_build 一致的投影/反投影（水平 sensor fit、principal point、roll），只用标准库。
 - `blender_build.py --preview`：只渲染源机位 `preview_render.png`（Workbench 或 Cycles 低采样），状态 `preview_only`，不能作为交付。`--render --hd-scale N` 在同一进程追加 `client_render_hd.png` 与 `inspection_render_hd.png`（中性灰底），并写入 build_report 哈希。
 - `boothctl.py preview` 在 `--out-root` 下建新的 `preview_NNN`，生成 `compare_sheet.png` 与 `compare.json`（landmark 像素误差，无相似度分数）。

@@ -7,8 +7,8 @@ abstract: >-
 type: software
 authors:
   - alias: ocrevo
-version: 2.8.0-rc1
-date-released: 2026-10-16
+version: 2.9.0-rc1
+date-released: 2026-10-19
 license: Apache-2.0
 repository-code: "https://github.com/ocrevo/booth-image-to-model"
 keywords:

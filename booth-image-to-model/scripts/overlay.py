@@ -6,7 +6,9 @@ and box really sit on the booth in the picture? Wrong camera height, a missed
 open side or a mis-clicked corner shows up as a wireframe that drifts away from
 the walls or floor edges. Standard-library maths only (camera_math).
 
-Outputs a PNG; draws nothing that is not derived from the fit.
+Outputs a PNG; draws nothing that is not derived from the fit. Fitted corners are green circles; check corners (fit false in
+the points file) are orange squares and are left out of "max_point_err_px" (their worst error is "max_check_err_px"); corners that
+box_fit names as outliers get a magenta ring.
 """
 from __future__ import annotations
 import argparse
@@ -19,6 +21,8 @@ import camera_math
 
 STEP_M = 0.5
 SEGMENT_M = 0.1          # polyline resolution so segments behind the camera can be skipped
+CHECK_COLOR = (255, 140, 0)       # check corners (fit false): square outline, error line and cross in orange
+OUTLIER_COLOR = (255, 0, 255)     # a fitted click that the others cannot predict gets a ring around its circle
 
 
 def _project(p, camera, w, h):
@@ -102,23 +106,43 @@ def draw_overlay(fit, image_path, out_path):
         _polyline(d, a, b, camera, w, h, (0, 200, 200))
     for a, b in edges:
         _polyline(d, a, b, camera, w, h, (255, 220, 0), width=2)
-    errs = []
+    errs, check_errs = [], []
+    outliers = set() if fit.get('loo_reliable') is False else {str(i) for i in (fit.get('outliers') or [])}
     for p in fit['points']:
         tx, ty = p['uv_px']
         fx, fy = p['fitted_px']
+        if p.get('fit') is False:                           # a check corner: projected with the fitted camera, never in the fit
+            d.rectangle([tx - 5, ty - 5, tx + 5, ty + 5], outline=CHECK_COLOR, width=2)
+            d.line([(tx, ty), (fx, fy)], fill=CHECK_COLOR, width=2)
+            d.line([(fx - 4, fy - 4), (fx + 4, fy + 4)], fill=CHECK_COLOR, width=1)
+            d.line([(fx - 4, fy + 4), (fx + 4, fy - 4)], fill=CHECK_COLOR, width=1)
+            check_errs.append(p['err_px'])
+            continue
         d.ellipse([tx - 4, ty - 4, tx + 4, ty + 4], outline=(0, 255, 0), width=2)
         d.line([(tx, ty), (fx, fy)], fill=(255, 0, 0), width=2)
         d.line([(fx - 4, fy - 4), (fx + 4, fy + 4)], fill=(255, 0, 0), width=1)
         d.line([(fx - 4, fy + 4), (fx + 4, fy - 4)], fill=(255, 0, 0), width=1)
+        if str(p.get('id')) in outliers:                    # a click the others cannot predict
+            d.ellipse([tx - 9, ty - 9, tx + 9, ty + 9], outline=OUTLIER_COLOR, width=2)
         errs.append(p['err_px'])
     height = f"H {dims['H']}" if 'H' in dims else 'H not fitted (floor only)'
     label = f"fit {fit['status']}  rms {fit['rms_px']} px  W {dims['W']} D {dims['D']} {height} m  grid {STEP_M} m"
-    d.rectangle([0, 0, min(w, 8 * len(label) + 8), 16], fill=(0, 0, 0))
-    d.text((4, 2), label, fill=(255, 255, 255))
+    labels = [label]
+    if check_errs or outliers:
+        legend = []
+        if check_errs:
+            legend.append(f"orange square = check corner, not fitted (max {max(check_errs):.1f} px)")
+        if outliers:
+            legend.append('magenta ring = click the others cannot predict')
+        labels.append('green circle = fitted corner;  ' + ';  '.join(legend))
+    for i, text in enumerate(labels):
+        d.rectangle([0, 16 * i, min(w, 8 * len(text) + 8), 16 * i + 16], fill=(0, 0, 0))
+        d.text((4, 16 * i + 2), text, fill=(255, 255, 255))
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out_path)
     return {'overlay': str(out_path), 'rms_px': fit['rms_px'], 'max_point_err_px': max(errs) if errs else None,
+            'check_points': len(check_errs), 'max_check_err_px': max(check_errs) if check_errs else None,
             'grid_segments': len(grid), 'box_edges': len(edges)}
 
 

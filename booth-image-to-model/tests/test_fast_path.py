@@ -32,6 +32,11 @@ CAM = {'projection': 'perspective', 'position': [7.0, -11.0, 6.5], 'target': [0.
        'sensor_width_mm': 36.0, 'principal_point': [0.5, 0.5], 'pixel_aspect': [1, 1], 'fit_status': 'unfitted', 'roll_deg': 3.0}
 
 
+def only_real_warnings(fit):
+    """The fit's warnings without the note that leave-one-out was skipped for lack of corners."""
+    return [w for w in fit['warnings'] if 'leave-one-out is skipped' not in w]
+
+
 def tiny_source(path, size=(64, 48)):
     Image.new('RGB', size, (120, 120, 120)).save(path)
     return path
@@ -339,15 +344,22 @@ class Batch5Tests(unittest.TestCase):
         res = solve(self.checks_data(0.9), seeds=16)
         check = res['scale_checks'][0]
         self.assertTrue(check['ok'], check)
-        self.assertAlmostEqual(check['measured_height_m'], 0.9, delta=0.02)
-        self.assertEqual(res['warnings'], [])
+        self.assertEqual(check['id'], 'stool')
+        self.assertEqual(check['expected_m'], 0.9)
+        self.assertAlmostEqual(check['measured_m'], 0.9, delta=0.02)
+        self.assertAlmostEqual(check['ratio'], 1.0, delta=0.03)
+        self.assertEqual(check['tolerance'], res['limits']['scale_ratio_tolerance'])       # no tolerance given: the default, also in limits
+        self.assertEqual(only_real_warnings(res), [])
         self.assertEqual(res['assumed'], ['D'])
 
     def test_scale_check_flags_a_wrong_scale_assumption(self):
         res = solve(self.checks_data(0.6), seeds=16)           # the booth was fitted at its true size, so 0.6 m is the wrong expectation
-        self.assertFalse(res['scale_checks'][0]['ok'])
-        self.assertTrue(any('scale check stool' in w for w in res['warnings']))
-        self.assertGreater(res['scale_checks'][0]['ratio'], 1.4)
+        check = res['scale_checks'][0]
+        self.assertFalse(check['ok'])
+        self.assertTrue(any('scale check stool' in w for w in res['warnings']))     # the text warning stays next to the structured entry
+        self.assertGreater(check['ratio'], 1.4)
+        self.assertEqual({k: check[k] for k in ('id', 'expected_m')}, {'id': 'stool', 'expected_m': 0.6})
+        self.assertAlmostEqual(check['measured_m'], 0.9, delta=0.02)
 
     def test_scale_check_entries_are_validated(self):
         data = self.checks_data(0.9)
@@ -408,22 +420,26 @@ class HdCapTests(unittest.TestCase):
 
 
 class FitDiagnosticsTests(unittest.TestCase):
-    def test_high_residual_fit_is_not_called_fitted_and_names_the_worst_point(self):
+    def test_high_residual_fit_is_not_called_fitted_and_lists_the_worst_points(self):
         data = BoxFitTests().clicks(FitOverlayTests.CAM2)
         data['points'][3]['uv_px'] = [data['points'][3]['uv_px'][0] + 60, data['points'][3]['uv_px'][1] - 45]
-        moved = data['points'][3]['id']
         res = solve(data, seeds=16)
         self.assertEqual(res['status'], 'high_residual')
-        worst_ids = [w['id'] for w in res['worst_points']]
-        self.assertIn(moved, worst_ids)               # a bad click is spread over the fit, so it need not rank first
-        self.assertEqual(len(worst_ids), 3)
-        self.assertTrue(res['warnings'])
-        self.assertIn(moved, res['warnings'][0])
+        self.assertEqual(len(res['worst_points']), 3)
+        self.assertTrue(any('rms' in w and res['worst_points'][0]['id'] in w for w in res['warnings']))
+        # 8 corners with a free wall position are 14 equations for 10 unknowns: too few to say which click is wrong (the robust fit
+        # may even blame a neighbour), so nobody is named and the output says why.
+        self.assertFalse(res['loo_reliable'])
+        self.assertEqual(res['outliers'], [])
+        self.assertTrue(any('leave-one-out is skipped' in w for w in res['warnings']))
 
     def test_clean_fit_has_no_warnings(self):
         res = solve(BoxFitTests().clicks(FitOverlayTests.CAM2), seeds=16)
         self.assertEqual(res['status'], 'fitted')
-        self.assertEqual(res['warnings'], [])
+        # These 8 corners (10 unknowns) are too few for a leave-one-out check; that is said once and is the only remark.
+        self.assertEqual(len(res['warnings']), 1)
+        self.assertIn('leave-one-out is skipped', res['warnings'][0])
+        self.assertEqual(only_real_warnings(res), [])
 
     def test_ambiguity_names_the_unconstrained_dimension(self):
         self.assertEqual(ambiguous_dims({'W': 0.0, 'H': 2.3}, {'W': 8.0, 'H': 4.8}, ['W', 'H']), ['H'])

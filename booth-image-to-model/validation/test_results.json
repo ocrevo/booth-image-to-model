@@ -1,6 +1,6 @@
 {
-  "tests_run": 274,
-  "passed": 274,
+  "tests_run": 364,
+  "passed": 364,
   "failures": [],
   "errors": [],
   "skipped": [],
@@ -8,15 +8,15 @@
   "unexpected_successes": [],
   "all_executed_tests_passed": true,
   "python": "3.12.3",
-  "started_at_utc": "2026-10-16T15:15:43.056352+00:00",
+  "started_at_utc": "2026-10-19T10:29:35.465506+00:00",
   "require_native": true,
   "discovery_pattern": "test_*.py",
-  "output_directory": "output/_validation/release-check-2.8.0-rc1-b",
-  "artifact_root": "output/_validation/release-check-2.8.0-rc1-b/artifacts",
+  "output_directory": "output/_validation/release-check-2.9.0-rc1b",
+  "artifact_root": "output/_validation/release-check-2.9.0-rc1b/artifacts",
   "scope": "Regression evidence only; does not certify source-image fidelity.",
   "transcript_scope": "Complete runner stdout/stderr; separately captured native logs remain test artifacts.",
-  "builder_sha256": "2ccf9bcdc78ce962ac83845547972ee70008389042fb1c60e883f96ccd654db1",
-  "regression_inputs_sha256": "8fa348799334df7d92dcefe555f0dd3c43795a01e1f49cf7f68a4436369187eb",
+  "builder_sha256": "dc72b83d4f1075838a5bfbbddcae9b742daebf17e2bbfe9ccf0f820c072f5354",
+  "regression_inputs_sha256": "c6540923843410dd2b2f60f2c07a77e6734bd2ccec16b4fa7093ae397a8a8f69",
   "native_blender": {
     "requested": "<blender>/blender.exe",
     "available": true,
@@ -27,12 +27,12 @@
   },
   "native_skipped": [],
   "status": "passed",
-  "executed_at_utc": "2026-10-16T15:19:24.411478+00:00",
-  "builder_sha256_after": "2ccf9bcdc78ce962ac83845547972ee70008389042fb1c60e883f96ccd654db1",
-  "regression_inputs_sha256_after": "8fa348799334df7d92dcefe555f0dd3c43795a01e1f49cf7f68a4436369187eb",
+  "executed_at_utc": "2026-10-19T10:33:28.443883+00:00",
+  "builder_sha256_after": "dc72b83d4f1075838a5bfbbddcae9b742daebf17e2bbfe9ccf0f820c072f5354",
+  "regression_inputs_sha256_after": "c6540923843410dd2b2f60f2c07a77e6734bd2ccec16b4fa7093ae397a8a8f69",
   "exit_code": 0,
   "transcript": {
     "path": "test_transcript.txt",
-    "sha256": "3620e8934252bc96d4612da0a4e91118ab1658af0343fe941c94a9ae9df9a5c4"
+    "sha256": "5f91ff39e61cdc5d68c54fbd75e67ae94ee6a0fc375bf34092220a5784a8e8d2"
   }
 }

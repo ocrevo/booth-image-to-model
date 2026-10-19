@@ -125,6 +125,8 @@ other agent at its `SKILL.md`.
 | run the studio or the editor, configure a model | [web/README.md](web/README.md) |
 | write a scene description by hand | [references/scene-description.md](booth-image-to-model/references/scene-description.md) (Chinese) |
 | understand the spec format | [references/data-contract.md](booth-image-to-model/references/data-contract.md) (Chinese) and the [schema](booth-image-to-model/schemas/booth-spec-v2.schema.json) |
+| understand the design and the plan to make reading more accurate and faster | [docs/design-review-2026-10.md](docs/design-review-2026-10.md) |
+| measure a version of the skill against the recorded baseline | [tools/eval/README.md](tools/eval/README.md), [BASELINE.md](tools/eval/BASELINE.md) |
 | contribute | [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md) for coding agents |
 | report a security problem | [SECURITY.md](SECURITY.md) |
 | see what changed | [CHANGELOG.md](booth-image-to-model/CHANGELOG.md) (Chinese) |
@@ -136,5 +138,5 @@ other agent at its `SKILL.md`.
 ## Project
 
 The repository was renamed from `Booth2CAD` to `booth-image-to-model`; old links redirect.
-Version 2.8.0-rc1. Contributions are welcome under the [Apache License 2.0](LICENSE); please read [CONTRIBUTING.md](CONTRIBUTING.md)
+Version 2.9.0-rc1. Contributions are welcome under the [Apache License 2.0](LICENSE); please read [CONTRIBUTING.md](CONTRIBUTING.md)
 first and never attach client pictures. To cite the project, use [CITATION.cff](CITATION.cff).

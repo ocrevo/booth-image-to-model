@@ -31,6 +31,12 @@ FLOOR_T = 0.05                       # slab thickness below the walking surface
 NUDGE = 0.002                        # coplanar faces are pulled apart by this much (m)
 DUP_RADIUS = 0.25                    # downlights closer than this are one light
 MAX_COMPONENTS, MAX_COUNT, MAX_ROWS, MAX_POINTS, MAX_DIM = 500, 200, 100, 200, 100.0
+# What box_fit reports about the fit and the independent checks; report["fit"] copies these (absent keys become null).
+# The gate has no pixel limits of its own: box_fit reports the ones it judged by under "limits", and the gate reads those.
+FIT_KEYS = ('status', 'rms_px', 'max_px', 'dims_m', 'dim_source', 'worst_points', 'warnings', 'ambiguity_hint', 'hint',
+            'loss', 'n_fit', 'n_check', 'check_points', 'check_median_px', 'check_max_px',
+            'loo_reliable', 'loo_errors_px', 'loo_median_px', 'loo_max_px', 'outliers', 'dropped', 'rms_kept_px', 'n_unknown',
+            'scale_checks', 'limits')
 MACROS = {'counter', 'round_table', 'shell_chair', 'planter', 'louvre_wall', 'tv', 'led_wall', 'spotlights'}
 COMMON = {'id', 'type', 'scope', 'evidence', 'roi_px', 'color_hex'}
 # Fields each type reads. A field the scene fills but the type does not read is reported, never silently dropped.
@@ -72,9 +78,21 @@ def _int(v):
     return (isinstance(v, int) and not isinstance(v, bool)) or (isinstance(v, float) and math.isfinite(v) and v.is_integer())
 
 
+def upgrade_scene(scene):
+    """Scene files written before schema 1.1 have no corner_points[].fit: fill null (= used in the fit) so the strict schema,
+    which requires the key, accepts them. Returns the same object when nothing is missing, otherwise a copy; never edits the input."""
+    points = scene.get('corner_points') if isinstance(scene, dict) else None
+    if not isinstance(points, list) or all(not isinstance(p, dict) or 'fit' in p for p in points):
+        return scene
+    out = dict(scene)
+    out['corner_points'] = [dict(p, fit=None) if isinstance(p, dict) and 'fit' not in p else p for p in points]
+    return out
+
+
 def validate_scene(scene):
     """Structure (JSON Schema) first, then the rules a schema cannot say. Returns a list of {code, where, message}."""
     from jsonschema import Draft202012Validator
+    scene = upgrade_scene(scene)
     errors = [{'code': 'SCHEMA', 'where': '/'.join(str(p) for p in e.absolute_path) or '(root)', 'message': e.message}
               for e in sorted(Draft202012Validator(load_schema()).iter_errors(scene), key=lambda e: list(map(str, e.absolute_path)))]
     if errors:
@@ -274,11 +292,30 @@ def ignored_fields(scene):
 
 
 # ------------------------------------------------------------------ camera fit
+def unconstrained_checks(scene):
+    """Ids of check corners (fit false) that box_fit leaves out on purpose: they use a dimension or a ?name that no fitted corner
+    constrains, so they cannot be placed with the fitted camera. They were never in the fit, so they are not a stale-fit problem."""
+    import box_fit
+    rows = []
+    for p in scene['corner_points']:
+        try:
+            rows.append((p, [box_fit.parse_token(t) for t in p['xyz']]))
+        except ValueError:
+            continue                                                      # a bad token is box_fit's error to report
+    fitted = [tokens for p, tokens in rows if p.get('fit') is not False]
+    known = {k for k, v in scene['known'].items() if v is not None}
+    dims = known | {t[1] for tokens in fitted for t in tokens if t[0] in ('half', 'dim')}
+    frees = {t[1] for tokens in fitted for t in tokens if t[0] == 'free'}
+    return [p['id'] for p, tokens in rows if p.get('fit') is False
+            and not all(t[1] in frees if t[0] == 'free' else (t[1] in dims if t[0] in ('half', 'dim') else True) for t in tokens)]
+
+
 def fit_camera(scene, seeds=40):
     import box_fit
     data = {'image': dict(scene['image']), 'floor_z': scene['floor_z'],
             'known': {k: v for k, v in scene['known'].items() if v is not None}, 'assumed': list(scene['assumed']),
-            'points': [{'id': p['id'], 'uv_px': p['uv_px'], 'xyz': p['xyz']} for p in scene['corner_points']]}
+            'points': [dict({'id': p['id'], 'uv_px': p['uv_px'], 'xyz': p['xyz']}, **({'fit': False} if p.get('fit') is False else {}))
+                       for p in scene['corner_points']]}
     checks = [{k: v for k, v in s.items() if not (k == 'tolerance' and v is None)} for s in scene['scale_checks']]
     if checks:
         data['scale_checks'] = checks
@@ -316,6 +353,123 @@ def check_fit(scene, fit, supplied):
             bad(f"floor_z={scene['floor_z']:g} but the given fit has {fit['floor_z']:g}")
     if errors:
         raise SceneError(errors)
+
+
+# ------------------------------------------------------------------ quality gate
+def _limit(limits, *names):
+    """A pixel limit from the "limits" box_fit reported, or None when it did not report that one (the gate then applies none)."""
+    if isinstance(limits, dict):
+        for name in names:
+            value = limits.get(name)
+            if _num(value) and value > 0:
+                return float(value)
+    return None
+
+
+def _loo_numbers(fit):
+    """-> (median, worst, outliers) of the leave-one-out check, or (None, None, []) when box_fit says it is not reliable.
+
+    box_fit reports "loo_reliable": false (and null numbers) when too few equations remain after holding a corner out, because the
+    names such a check gives are guesses. A fit that does not say (older files, hand-written ones) is trusted as far as it has numbers."""
+    if fit.get('loo_reliable') is False:
+        return None, None, []
+    median, worst = fit.get('loo_median_px'), fit.get('loo_max_px')
+    return (median if _num(median) else None), (worst if _num(worst) else None), [str(i) for i in (fit.get('outliers') or [])]
+
+
+def _scale_check_reasons(fit):
+    reasons = []
+    for c in fit.get('scale_checks') or []:
+        if not isinstance(c, dict) or c.get('ok') is not False:
+            continue
+        name = c.get('id') or 'a standard part'
+        measured = c.get('measured_m', c.get('measured_height_m'))
+        expected = c.get('expected_m', c.get('expected_height_m'))
+        ratio = c.get('ratio')
+        if c.get('error') or not (_num(measured) and _num(expected)):
+            reasons.append(f"a size check failed: {name} could not be measured" + (f" ({c['error']})" if c.get('error') else '')
+                           + ', so the scale has no cross-check')
+        else:
+            reasons.append(f"a size check failed: {name} measures {measured:.2f} m where about {expected:.2f} m is expected"
+                           + (f' (ratio {ratio:.2f})' if _num(ratio) else '')
+                           + ': the assumed size, the clicks or the expected size is wrong')
+    return reasons
+
+
+def quality_gate(fit):
+    """-> {"status": "pass" | "review", "reasons": [plain-English strings]}.
+
+    "review" means the camera and scale are not trustworthy enough to render the final picture without a person looking:
+    the fit itself is poor (status), clicks the others cannot predict are named, the independent errors (check corners,
+    leave-one-out) are above the limits box_fit reports, a size check on a standard part failed, or there is no independent
+    signal at all. A clean fit with a reliable leave-one-out check is a pass; check corners (fit false) are optional.
+    Reads only box_fit's output; every number that is absent is treated as not measured and no limit that box_fit did not
+    report is made up."""
+    reasons = []
+    status = fit.get('status')
+    if status == 'high_residual':
+        rms = fit.get('rms_px')
+        reasons.append(f"the corner fit leaves {rms:.1f} px of error (rms): some clicked corners disagree with a box seen in perspective"
+                       if _num(rms) else 'the corner fit leaves a high error: some clicked corners disagree with a box seen in perspective')
+    elif status == 'ambiguous':
+        names = ', '.join(fit.get('ambiguous_dims') or [])
+        reasons.append('the clicked corners do not pin down the size' + (f' ({names})' if names else '') + ': several different boxes fit equally well')
+    elif status not in ('fitted', 'check_failed'):
+        reasons.append(f'the fit status is {status!r}, not fitted')
+
+    limits = fit.get('limits')
+    specific = []                                       # what makes a check_failed status concrete
+    check_points = fit.get('check_points')
+    n_check = fit.get('n_check')
+    if not _int(n_check) or isinstance(n_check, bool):
+        n_check = len(check_points) if isinstance(check_points, list) else 0
+    median, worst = fit.get('check_median_px'), fit.get('check_max_px')
+    have_check = _num(median)
+    if n_check and not have_check:
+        specific.append('the check corners could not be measured')
+    elif have_check:
+        median_limit, worst_limit = _limit(limits, 'check_median_px', 'check_median'), _limit(limits, 'check_max_px', 'check_max')
+        if median_limit is not None and median > median_limit:
+            specific.append(f'the check corners are off by {median:.1f} px on median (limit {median_limit:g} px): '
+                            'the fit does not predict corners it was not fitted to')
+        elif worst_limit is not None and _num(worst) and worst > worst_limit:
+            specific.append(f'a check corner is off by {worst:.1f} px (limit {worst_limit:g} px): the fit does not predict it')
+
+    loo_median, loo_worst, outliers = _loo_numbers(fit)
+    have_loo = loo_median is not None
+    if have_loo:
+        median_limit, worst_limit = _limit(limits, 'loo_median_px', 'loo_median'), _limit(limits, 'loo_max_px', 'loo_max')
+        if median_limit is not None and loo_median > median_limit:
+            specific.append(f'leaving one corner out moves it by {loo_median:.1f} px on median (limit {median_limit:g} px): '
+                            'the corners do not agree with each other')
+        elif worst_limit is not None and loo_worst is not None and loo_worst > worst_limit:
+            specific.append(f'leaving one corner out moves it by {loo_worst:.1f} px (limit {worst_limit:g} px): one corner may be mis-clicked')
+    if outliers:
+        dropped = set(str(i) for i in (fit.get('dropped') or []))
+        specific.append('corners that disagree with the rest of the fit (possible mis-clicks): ' + ', '.join(outliers)
+                        + ('; the camera was refitted without ' + ('them' if dropped >= set(outliers) else ', '.join(sorted(dropped))) if dropped else ''))
+    if status == 'check_failed' and not specific:
+        specific.append('the fit looks fine but it does not predict the corners it was not fitted to (check or left-out corners)')
+    reasons += specific
+    reasons += _scale_check_reasons(fit)
+    if not have_check and not have_loo and not n_check:
+        reasons.append('there is no independent check of the fit: there are too few corners to predict each one from the others; '
+                       'add well-spread corners (the fit\'s limits.loo_min_fit says how many are needed), '
+                       'or add extra corners as check corners (fit false)')
+    return {'status': 'review' if reasons else 'pass', 'reasons': reasons}
+
+
+def fit_note(fit):
+    """One short sentence on the independent checks for scale.notes."""
+    parts = []
+    if _num(fit.get('check_median_px')):
+        parts.append(f"{fit.get('n_check') or len(fit.get('check_points') or [])} check corners off by {fit['check_median_px']:.1f} px (median)")
+    loo_median = _loo_numbers(fit)[0]
+    if loo_median is not None:
+        parts.append(f"leave-one-out error {loo_median:.1f} px (median)")
+    note = ('Independent checks: ' + ', '.join(parts) + '.') if parts else 'No independent check of the fit.'
+    dropped = [str(i) for i in (fit.get('dropped') or [])]
+    return note + (' The camera was refitted without the clicks ' + ', '.join(dropped) + '.' if dropped else '')
 
 
 # ------------------------------------------------------------------ compiler
@@ -702,7 +856,7 @@ class Compiler:
         self.landmarks()
         sources = ', '.join(f"{k}={self.dims[k]:g} ({'assumed' if k in sc['assumed'] else self.fit['dim_source'].get(k, 'fitted')})" for k in 'WDH')
         b.scale((self.W, self.D), (f"Footprint and height: {sources}. Camera from a corner fit ({self.fit['status']}, rms {self.fit['rms_px']} px). "
-                                   f"{sc['scale_notes'] or ''} Compiled from a scene description; not measured.").replace('  ', ' '))
+                                   f"{fit_note(self.fit)} {sc['scale_notes'] or ''} Compiled from a scene description; not measured.").replace('  ', ' '))
         for u in sc['uncertainties']:
             b.uncertain(u['id'], u['description'], critical=u['critical'])
         b.uncertain('metric_dimensions', 'Single-image estimate; confirm before any BOM or construction use.')
@@ -713,7 +867,19 @@ class Compiler:
         return b.build()
 
     def landmarks(self):
+        """Floor corners whose x and y resolve become landmarks on the floor; check corners (fit false) and the clicks box_fit
+        dropped from the final camera ("dropped") are held-out ones. Corners off the floor have no part to attach to; the error of
+        a check corner is reported in report["fit"]["check_points"] only."""
         import box_fit
+        flagged = [p['id'] for p in self.scene['corner_points'] if p.get('fit') is False]
+        reported = self.fit.get('check_points')
+        listed = {c.get('id') for c in (reported if isinstance(reported, list) else []) if isinstance(c, dict)}
+        skipped = set(self.fit.get('skipped_checks') or []) | set(unconstrained_checks(self.scene))   # left out on purpose, never fitted
+        unlisted = [i for i in flagged if i not in listed and i not in skipped]
+        if unlisted:
+            self.warn('check corners ' + ', '.join(unlisted) + " are not listed in the fit's check_points: "
+                      'they may have been used in the fit (refit with the current box_fit)')
+        dropped = {str(i) for i in (self.fit.get('dropped') or [])}      # clicks box_fit left out of the final camera: not used in the fit
         for p in self.scene['corner_points']:
             try:
                 tx, ty, tz = (box_fit.parse_token(t) for t in p['xyz'])
@@ -722,7 +888,7 @@ class Compiler:
             if tz[0] == 'floor' and tx[0] == 'half' and ty[0] == 'half':
                 world = [tx[2] * self.dims[tx[1]] / 2, ty[2] * self.dims[ty[1]] / 2, self.zf]       # x and y each follow their own token
                 try:
-                    self.b.landmark(p['id'], 'floor', world, p['uv_px'], fit=True)
+                    self.b.landmark(p['id'], 'floor', world, p['uv_px'], fit=p.get('fit') is not False and p['id'] not in dropped)
                 except ValueError:
                     pass
 
@@ -785,6 +951,7 @@ def compile_scene(scene, image_path, out_dir, fit=None, seeds=40):
     """-> (spec, report). Writes spec.json, box_fit.json, compile_report.json and a copy of the image into out_dir,
     but only after the whole compile has run, so a failure never leaves a half-updated folder."""
     from PIL import Image
+    scene = upgrade_scene(scene)
     errors = validate_scene(scene)
     if not errors:
         try:
@@ -804,8 +971,10 @@ def compile_scene(scene, image_path, out_dir, fit=None, seeds=40):
     comp = Compiler(scene, fit, source)
     spec = comp.build()
     report = comp.report
-    if supplied and scene['scale_checks']:
-        report['warnings'].append('scale_checks were not evaluated: a given fit was used (drop --fit to run them)')
+    if supplied:
+        done = {c.get('id') for c in (fit.get('scale_checks') or []) if isinstance(c, dict)}       # a given fit may carry its own results
+        if any(s['id'] not in done for s in scene['scale_checks']):
+            report['warnings'].append('scale_checks were not evaluated: a given fit was used (drop --fit to run them)')
     leftover = separate_coplanar(spec, report)
     for cid, over in outside_footprint(spec):
         report['warnings'].append(f'{cid}: extends {over:.2f} m outside the footprint')
@@ -816,9 +985,14 @@ def compile_scene(scene, image_path, out_dir, fit=None, seeds=40):
     if check['valid']:
         report['warnings'] += [f"{w['code']} {w.get('ids') or w.get('id') or ''} {w.get('plane', '')}".strip() for w in check['warnings']]
     report['warnings'] += ['fit: ' + w for w in (fit.get('warnings') or [])]
-    if fit.get('ambiguity_hint'):
-        report['warnings'].append('fit: ' + str(fit['ambiguity_hint']))
-    report['fit'] = {k: fit.get(k) for k in ('status', 'rms_px', 'max_px', 'dims_m', 'dim_source', 'worst_points', 'warnings', 'ambiguity_hint')}
+    ambiguity_hint = fit.get('ambiguity_hint')          # only a real ambiguity hint; box_fit's "hint" can also be re-click advice
+    if ambiguity_hint is None and 'ambiguity_hint' not in fit and fit.get('status') == 'ambiguous':
+        ambiguity_hint = fit.get('hint')                # a fit written before the two keys were kept apart
+    for advice in dict.fromkeys(str(h) for h in (ambiguity_hint, fit.get('hint')) if h):
+        report['warnings'].append('fit: ' + advice)
+    report['fit'] = {k: fit.get(k) for k in FIT_KEYS}
+    report['fit']['ambiguity_hint'] = ambiguity_hint
+    report['quality_gate'] = quality_gate(fit)
     report['valid'] = check['valid']
     report['validation_errors'] = check['errors'][:20]
     report['coplanar_unresolved'] = [{'ids': w['ids'], 'plane': w['plane']} for w in leftover]
@@ -851,7 +1025,9 @@ def run(scene_path, image_path, out_dir, fit_path=None, seeds=40):
         return 2, {'status': 'input_error', 'message': f'{type(ex).__name__}: {ex}'}
     summary = {k: report[k] for k in ('status', 'components_built', 'valid')}
     summary.update(fit=report['fit']['status'], rms_px=report['fit']['rms_px'], fit_warnings=(report['fit']['warnings'] or [])[:3],
-                   dropped=report['dropped'], adjustments=len(report['adjustments']), assumed=len(report['assumed']),
+                   fit_check={k: report['fit'][k] for k in ('n_fit', 'n_check', 'check_median_px', 'check_max_px', 'loo_reliable',
+                                                           'loo_median_px', 'loo_max_px', 'outliers')},
+                   quality_gate=report['quality_gate'], dropped=report['dropped'], adjustments=len(report['adjustments']), assumed=len(report['assumed']),
                    warnings=report['warnings'][:10], validation_errors=report['validation_errors'][:5], spec=str(Path(out_dir) / 'spec.json'))
     return (0 if report['valid'] else 2), summary
 

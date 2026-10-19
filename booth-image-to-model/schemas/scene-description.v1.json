@@ -8,8 +8,11 @@
     "schema_version": {
       "type": "string",
       "enum": [
-        "scene-description.v1"
-      ]
+        "scene-description.v1",
+        "1.0",
+        "1.1"
+      ],
+      "description": "\"1.1\" for new files (corner_points[].fit is part of it); \"1.0\" and \"scene-description.v1\" are the older spellings and still load."
     },
     "project_id": {
       "type": "string",
@@ -79,14 +82,15 @@
     },
     "corner_points": {
       "type": "array",
-      "description": "6-10 clicked corners for the camera fit (see box_fit.py).",
+      "description": "8-10 clicked corners for the camera fit (see box_fit.py). All are used in the fit by default (fit null); each one is also checked by leave-one-out. A corner may be held out as an optional check with fit=false.",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "id",
           "uv_px",
-          "xyz"
+          "xyz",
+          "fit"
         ],
         "properties": {
           "id": {
@@ -105,6 +109,13 @@
               "type": "string"
             },
             "description": "Three tokens: a number, W/2, -W/2, D/2, -D/2, H, F (floor) or ?name (shared unknown)."
+          },
+          "fit": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "false = check corner: projected with the fitted camera and reported, but not used in the fit. true or null = used in the fit."
           }
         }
       }

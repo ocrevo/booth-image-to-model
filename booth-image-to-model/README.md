@@ -1,6 +1,6 @@
 **English** · [简体中文](README_CN.md)
 
-# booth-image-to-model (agent skill) · v2.8.0-rc1
+# booth-image-to-model (agent skill) · v2.9.0-rc1
 
 An agent skill that turns one exhibition-booth photo or render into an editable parametric 3D model (a JSON spec), a Blender scene
 and clean client renders without the hall, brands or people. The agent looks at the picture and decides what belongs to the booth;

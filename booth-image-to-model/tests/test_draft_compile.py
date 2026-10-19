@@ -69,9 +69,9 @@ def scene():
                ('floor_fr', (W / 2, D / 2, ZF), ['W/2', 'D/2', 'F']), ('floor_fl', (-W / 2, D / 2, ZF), ['-W/2', 'D/2', 'F']),
                ('top_fl', (-W / 2, D / 2, H), ['-W/2', 'D/2', 'H']), ('top_fr', (W / 2, D / 2, H), ['W/2', 'D/2', 'H'])]
     return {
-        'schema_version': 'scene-description.v1', 'project_id': 'synthetic_booth', 'image': {'width': IMG_W, 'height': IMG_H},
+        'schema_version': '1.1', 'project_id': 'synthetic_booth', 'image': {'width': IMG_W, 'height': IMG_H},
         'floor_z': ZF, 'known': {'W': W, 'D': D, 'H': H}, 'assumed': [],
-        'corner_points': [{'id': i, 'uv_px': px(*xyz), 'xyz': tok} for i, xyz, tok in corners],
+        'corner_points': [{'id': i, 'uv_px': px(*xyz), 'xyz': tok, 'fit': None} for i, xyz, tok in corners],
         'scale_checks': [],
         'scopes': [{'id': s, 'decision': 'include', 'owner': 'booth', 'evidence': 'Synthetic fixture.'} for s in ('shell', 'furniture', 'media', 'lighting')]
                   + [{'id': 'venue', 'decision': 'exclude', 'owner': 'venue', 'evidence': 'Surroundings are not booth geometry.'}],
@@ -211,6 +211,7 @@ class CompileTests(Base):
         self.assertEqual(floor['evidence']['status'], 'observed')
         self.assertEqual({s['id'] for s in self.spec['scope']['decisions'] if s['decision'] == 'exclude'}, {'venue'})
         self.assertEqual(len([lm for lm in self.spec['landmarks']]), 4)      # the four floor corners become landmarks
+        self.assertTrue(all(lm['fit'] for lm in self.spec['landmarks']))      # none is flagged as a check corner here
 
     def test_pixels_become_the_world_positions_they_came_from(self):
         near = lambda got, want: self.assertAlmostEqual(got, want, delta=0.04)

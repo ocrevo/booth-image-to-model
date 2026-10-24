@@ -32,6 +32,8 @@ SIDES = {'front', 'back', 'left', 'right'}
 CONTACT_TOL = 0.005
 EDGE_TRIM_ROLES = {'edge_trim'}
 NARROW_GAP_ROLES = {'counter', 'cabinet', 'planter', 'table', 'chair'}
+GENERIC_ONLY_ROLES = {'canopy_frame', 'canopy_sign', 'lit_panel', 'lit_groove', 'lit_niche', 'lit_niche_light',
+                      'prop_block'}    # no role-specific check yet: reported as not checked
 NOTE = ('Advisory only. The reference image may legitimately differ from usual stand practice; these results are '
         'prompts for review, not a statement about venue, safety or any other approval.')
 
@@ -302,6 +304,13 @@ def run(spec, context=None, priors=None):
                 gaps.append((gap, sorted(groups[x]) + sorted(groups[y])))
     for gap, ids in sorted(gaps)[:8]:
         finding('narrow_gap', 'info', ids, f'{gap:.2f} m between two furniture groups, less than the usual {secondary} m walkway', round(gap, 3), secondary)
+
+    # ---- roles that only the generic checks above can look at
+    generic = sorted({c['role'] for c in comps.values() if c.get('role') in GENERIC_ONLY_ROLES})
+    if generic:
+        not_checked.append({'check': 'role_specific_checks',
+                            'reason': f"no role-specific check for {', '.join(generic)}; only the footprint, height limit and "
+                                      'support path checks ran on those parts'})
 
     levels = [f['level'] for f in findings]
     return {'status': 'advisory_findings' if 'advisory' in levels else ('info_only' if findings else 'no_findings'),

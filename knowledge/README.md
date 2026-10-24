@@ -12,11 +12,8 @@ a person has reviewed them.
 
 | Note | Covers |
 |---|---|
-| [`venue-regulations.md`](research/venue-regulations.md) | Height limits, rigging, fire classes, back walls, plan approval, per venue or show |
 | [`dimensions-reference.md`](research/dimensions-reference.md) | System stands, boards, TVs and LED panels, furniture, ergonomics; standard parts that anchor scale |
-| [`gap-fill-2026-10-14.md`](research/gap-fill-2026-10-14.md) | Follow-up sources for gaps in the dimension reference |
 | [`reconstruction-tooling.md`](research/reconstruction-tooling.md) | Line and vanishing-point, monocular depth and segmentation tools for single-image reconstruction; faster CPU rendering |
-| [`asset-sources.md`](research/asset-sources.md) | Licences of model and material sources, a starter list, naming |
 
 Local, private material (a studio's own rules, past projects, venue manuals, licensed assets) can be kept next to this folder in
 `studio/`, `projects/`, `venues/` and `assets/`; these folders are git-ignored so they are never published by accident.

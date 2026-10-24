@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "worker.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "package", "branch", "commit", "status", "files_changed", "tests_added", "red_commit", "green_commit", "acceptance", "notes"],
+  "properties": {
+    "schema_version": {"const": "worker.v1"},
+    "package": {"type": "string"},
+    "branch": {"type": "string"},
+    "commit": {"type": "string"},
+    "status": {"enum": ["done", "blocked", "failed"]},
+    "files_changed": {"type": "array", "items": {"type": "string"}},
+    "tests_added": {"type": "array", "items": {"type": "string"}},
+    "red_commit": {"type": "string"},
+    "green_commit": {"type": "string"},
+    "mutation": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {"type": "string"},
+        "line_hint": {"type": "string"},
+        "test_failed": {"type": "boolean"}
+      }
+    },
+    "acceptance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["cmd", "exit_code", "seconds"],
+        "properties": {
+          "cmd": {"type": "string"},
+          "exit_code": {"type": "integer"},
+          "seconds": {"type": "number"}
+        }
+      }
+    },
+    "notes": {"type": "string"}
+  },
+  "examples": [
+    {
+      "schema_version": "worker.v1",
+      "package": "P1",
+      "branch": "poc/p1",
+      "commit": "0000000",
+      "status": "done",
+      "files_changed": ["tools/poc/score/metrics.py", "tools/poc/score/score.py", "tools/poc/tests/test_metrics.py"],
+      "tests_added": ["test_identical_render_scores_zero_edge_distance"],
+      "red_commit": "0000000",
+      "green_commit": "0000000",
+      "mutation": null,
+      "acceptance": [{"cmd": "python -m unittest discover -s tools/poc/tests -p \"test_metrics*.py\"", "exit_code": 0, "seconds": 3.2}],
+      "notes": "Canny thresholds taken from 03 section 3.1; no deviations."
+    }
+  ]
+}

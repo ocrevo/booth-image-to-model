@@ -1,0 +1,61 @@
+{
+  "schema_version": "booth-design.v1",
+  "project_id": "design_template",
+  "brief": {
+    "text": "A 6 x 4 m stand open to the front, height limit 3.5 m. Keep the warm wood and white look of the reference. A slatted wood feature wall at the back as the main visual, a reception counter near the front right, a 55-inch screen on the left wall, a small meeting corner with two chairs, two planters, downlights along the front. The name DEMO COFFEE on the header and on the counter. No hanging ceiling.",
+    "language": "en"
+  },
+  "reference": {"image": null, "card": "reference_card.json"},
+  "form": {"footprint_m": [6.0, 4.0], "height_limit_m": 3.5, "open_sides": ["front"], "hanging_allowed": null},
+  "booth_type": "inline",
+  "style": {
+    "dominant_hex": "#f2efe9",
+    "secondary_hex": "#a0744e",
+    "accent_hex": "#2f5d50",
+    "floor_finish": "timber",
+    "mood": ["warm", "natural", "minimal"],
+    "industry": "coffee machines",
+    "provenance": {"palette": "reference", "floor_finish": "reference", "mood": "reference", "industry": "brief"}
+  },
+  "layout": {
+    "wall_height_m": 3.0,
+    "platform_height_m": 0.1,
+    "entrance_side": "front",
+    "provenance": {"wall_height_m": "choice", "platform_height_m": "reference", "entrance_side": "brief"}
+  },
+  "elements": [
+    {"id": "hero_wall", "kind": "feature_wall", "hero": true, "side": "back", "along": 0.5, "size_m": [4.2, 0.08, null],
+     "material": {"role": "secondary", "finish": "wood"}, "params": {"variant": "slats"},
+     "provenance": {"presence": "brief", "placement": "brief", "size": "choice", "material": "reference"}},
+    {"id": "header", "kind": "header_band", "size_m": [null, 0.4, 0.5], "params": {"sides": ["front"]},
+     "material": {"role": "dominant", "finish": "matte"}, "text": {"body": "DEMO COFFEE", "size_m": 0.28},
+     "provenance": {"presence": "reference", "placement": "choice", "size": "prior", "material": "reference", "text": "brief"}},
+    {"id": "reception", "kind": "counter", "side": "front", "along": 0.78, "offset_m": 0.5, "size_m": [1.8, 0.55, 1.05],
+     "material": {"role": "dominant", "finish": "satin"}, "params": {"floating": true},
+     "text": {"body": "DEMO COFFEE", "size_m": 0.1},
+     "provenance": {"presence": "brief", "placement": "brief", "size": "prior", "material": "reference", "text": "brief"}},
+    {"id": "screen", "kind": "tv", "side": "left", "along": 0.6, "params": {"inch": 55},
+     "provenance": {"presence": "brief", "placement": "brief", "size": "brief", "material": "prior"}},
+    {"id": "meeting", "kind": "seating_group", "side": "centre", "centre_m": [-1.6, 0.2], "count": 2,
+     "material": {"role": "dominant"},
+     "provenance": {"presence": "brief", "placement": "choice", "size": "prior", "material": "reference"}},
+    {"id": "greens", "kind": "planter", "side": "right", "along": 0.75, "count": 2, "pitch_m": 0.9,
+     "material": {"role": "dominant", "finish": "matte"},
+     "provenance": {"presence": "brief", "placement": "choice", "size": "prior", "material": "reference"}},
+    {"id": "downlights", "kind": "spotlights", "side": "front", "count": 4,
+     "provenance": {"presence": "brief", "placement": "choice", "size": "prior", "material": "prior"}}
+  ],
+  "requirements": [
+    {"id": "r1", "priority": "must", "kind": "must_have", "element_kind": "feature_wall", "side": "back", "quote": "a slatted wood feature wall at the back"},
+    {"id": "r2", "priority": "must", "kind": "must_have", "element_kind": "counter", "side": "front", "quote": "a reception counter near the front right"},
+    {"id": "r3", "priority": "must", "kind": "must_have", "element_kind": "tv", "side": "left", "quote": "a 55-inch screen on the left wall"},
+    {"id": "r4", "priority": "must", "kind": "count", "element_kind": "chair", "count": 2, "quote": "a small meeting corner with two chairs"},
+    {"id": "r5", "priority": "should", "kind": "count", "element_kind": "planter", "count": 2, "quote": "two planters"},
+    {"id": "r6", "priority": "must", "kind": "text", "text": "DEMO COFFEE", "quote": "The name DEMO COFFEE on the header"},
+    {"id": "r7", "priority": "must", "kind": "must_not", "element_kind": "ring", "quote": "No hanging ceiling."}
+  ],
+  "uncertainties": [
+    {"id": "screen_content", "description": "Screen content is neutral; the brief gives none.", "critical": false}
+  ],
+  "notes": "Template for the design route: an invented booth, no client content."
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": "anchor1.v1",
+  "expected_order_best_to_worst": ["B1", "B2", "B3", "B4", "B5", "B6"],
+  "variants": {
+    "B1": "recolour one accent part, delta E about 15",
+    "B2": "move one non-hero part by 20 px at its depth",
+    "B3": "move one hero part by 60 px at its depth",
+    "B4": "remove one non-hero part",
+    "B5": "remove one hero part",
+    "B6": "remove one hero and two non-hero parts, swap dominant and secondary colours"
+  },
+  "pass": {"spearman_total_min": 0.8, "spearman_edge_min": 0.8}
+}

@@ -257,7 +257,7 @@ def package(skill, test_run, explicit_version=None):
 
 
 RUNTIME = ('SKILL.md', 'README.md', 'README_CN.md', 'CHANGELOG.md', 'LICENSE', 'NOTICE', 'requirements.txt', 'release_status.json',
-           'scripts', 'schemas', 'references', 'templates',
+           'scripts', 'schemas', 'references', 'templates', 'prompts',
            'examples/regression/annotations.template.json')         # the references point agents to this template
 
 

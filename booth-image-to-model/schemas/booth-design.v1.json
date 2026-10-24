@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "booth-design.v1: a new booth design from a reference picture and a brief (metres, semantic elements)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "brief", "form", "booth_type", "style", "elements"],
+  "properties": {
+    "schema_version": {"enum": ["booth-design.v1"]},
+    "project_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "brief": {
+      "type": "object", "additionalProperties": false, "required": ["text"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1, "description": "The designer's brief, verbatim. Text on the model may only come from here."},
+        "language": {"type": ["string", "null"]}
+      }
+    },
+    "reference": {
+      "type": ["object", "null"], "additionalProperties": false,
+      "properties": {
+        "image": {"type": ["string", "null"], "description": "Path of the reference picture relative to design.json; its sha256 is recorded, nothing is measured from it."},
+        "card": {"type": ["string", "null"], "description": "Path of reference_card.json (what was taken from the picture)."},
+        "sha256": {"type": ["string", "null"]}
+      }
+    },
+    "form": {
+      "type": "object", "additionalProperties": false, "required": ["footprint_m", "height_limit_m", "open_sides"],
+      "description": "Facts from the designer. Never changed by the design.",
+      "properties": {
+        "footprint_m": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+        "height_limit_m": {"type": "number"},
+        "open_sides": {"type": "array", "items": {"enum": ["front", "back", "left", "right"]}, "maxItems": 4},
+        "hanging_allowed": {"type": ["boolean", "null"]}
+      }
+    },
+    "booth_type": {"enum": ["inline", "corner", "peninsula", "island", "other"]},
+    "style": {
+      "type": "object", "additionalProperties": false, "required": ["dominant_hex", "secondary_hex", "accent_hex"],
+      "properties": {
+        "dominant_hex": {"$ref": "#/$defs/hex"},
+        "secondary_hex": {"$ref": "#/$defs/hex"},
+        "accent_hex": {"$ref": "#/$defs/hex"},
+        "floor_finish": {"enum": ["carpet", "timber", "vinyl", "tile", "platform", null]},
+        "floor_hex": {"anyOf": [{"$ref": "#/$defs/hex"}, {"type": "null"}]},
+        "floor_pattern": {"type": ["object", "null"], "description": "A material pattern copied as it is onto the floor part; validate_spec checks it."},
+        "mood": {"type": ["array", "null"], "items": {"type": "string"}},
+        "industry": {"type": ["string", "null"]},
+        "provenance": {"type": ["object", "null"], "additionalProperties": {"$ref": "#/$defs/source"}}
+      }
+    },
+    "layout": {
+      "type": ["object", "null"], "additionalProperties": false,
+      "properties": {
+        "wall_height_m": {"type": ["number", "null"], "description": "Top of the perimeter walls above the hall floor."},
+        "wall_thickness_m": {"type": ["number", "null"]},
+        "platform_height_m": {"type": ["number", "null"]},
+        "entrance_side": {"enum": ["front", "back", "left", "right", null]},
+        "provenance": {"type": ["object", "null"], "additionalProperties": {"$ref": "#/$defs/source"}}
+      }
+    },
+    "elements": {"type": "array", "items": {"$ref": "#/$defs/element"}},
+    "requirements": {"type": ["array", "null"], "items": {"$ref": "#/$defs/requirement"}},
+    "uncertainties": {
+      "type": ["array", "null"],
+      "items": {"type": "object", "additionalProperties": false, "required": ["id", "description"],
+                "properties": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}, "description": {"type": "string"},
+                               "critical": {"type": ["boolean", "null"]}}}
+    },
+    "notes": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "hex": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+    "source": {"enum": ["brief", "reference", "prior", "choice", null]},
+    "element": {
+      "type": "object", "additionalProperties": false, "required": ["id", "kind"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "kind": {"enum": ["feature_wall", "graphic_panel", "tv", "led_wall", "wall", "header_band", "ring", "spotlights",
+                          "canopy_frame", "counter", "round_table", "chair", "seating_group", "planter", "display_plinth",
+                          "storage_block", "partition", "lit_panel", "prop_block", "box"]},
+        "hero": {"type": ["boolean", "null"]},
+        "side": {"enum": ["front", "back", "left", "right", "centre", null]},
+        "along": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "offset_m": {"type": ["number", "null"]},
+        "centre_m": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+        "yaw_deg": {"type": ["number", "null"]},
+        "z_m": {"type": ["number", "null"]},
+        "size_m": {"type": ["array", "null"], "items": {"type": ["number", "null"]}, "minItems": 3, "maxItems": 3},
+        "count": {"type": ["integer", "null"], "minimum": 1},
+        "pitch_m": {"type": ["number", "null"]},
+        "material": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "properties": {
+            "role": {"enum": ["dominant", "secondary", "accent", null]},
+            "color_hex": {"anyOf": [{"$ref": "#/$defs/hex"}, {"type": "null"}]},
+            "finish": {"enum": ["matte", "satin", "gloss", "metal", "glass", "wood", "fabric", null]},
+            "emissive": {"type": ["boolean", "null"]},
+            "pattern": {"type": ["object", "null"], "description": "A material pattern copied as it is onto the element's parts that are not text and not emissive; validate_spec checks it."}
+          }
+        },
+        "text": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "properties": {"body": {"type": ["string", "null"], "maxLength": 60}, "size_m": {"type": ["number", "null"]}}
+        },
+        "params": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "properties": {
+            "variant": {"enum": ["slats", "panel", null]},
+            "inch": {"type": ["integer", "null"]},
+            "module_m": {"type": ["number", "null"]},
+            "sides": {"type": ["array", "null"], "items": {"enum": ["front", "back", "left", "right"]}},
+            "floating": {"type": ["boolean", "null"]},
+            "radius_m": {"type": ["number", "null"]},
+            "inset_m": {"type": ["number", "null"]},
+            "corner_radius_m": {"type": ["number", "null"]},
+            "pitch_m": {"type": ["number", "null"]},
+            "slat_width_m": {"type": ["number", "null"]},
+            "role": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]*$"},
+            "groove_width_m": {"type": ["number", "null"], "description": "lit_panel: width of the light groove (m)."},
+            "groove_depth_m": {"type": ["number", "null"], "description": "Read per kind. lit_panel: how far the groove is let into the panel face (m); the light band lies on its floor. Other kinds that read this key say what it means for them in references/component-recipes.md."},
+            "label": {"enum": ["laptop", "tablet", "monitor", "phone", "headphone", "plant", "robot_arm", "robot", "other", null], "description": "prop_block: what the block stands in for, one of a closed list; it only goes into the part's note (no shape is built). Absent = other."},
+            "light_hex": {"anyOf": [{"$ref": "#/$defs/hex"}, {"type": "null"}], "description": "lit_panel: colour of the groove light and of the niche ring."},
+            "niche": {
+              "type": ["object", "null"], "additionalProperties": false,
+              "description": "lit_panel: an arched niche let into the panel core, with a back wall and a floor and a ring of light round the opening; null = none. bottom_m is measured from the panel base; the two top corners of the opening are rounded.",
+              "properties": {"width_m": {"type": ["number", "null"]}, "height_m": {"type": ["number", "null"]},
+                             "bottom_m": {"type": ["number", "null"]}, "depth_m": {"type": ["number", "null"]},
+                             "corner_radius_m": {"type": ["number", "null"]}, "ring_width_m": {"type": ["number", "null"]}}
+            },
+            "band_m": {
+              "type": ["object", "null"], "additionalProperties": false,
+              "description": "canopy_frame: band width on each side, measured in plan from the outer edge inwards; the opening is off centre when they differ.",
+              "properties": {"front": {"type": ["number", "null"]}, "back": {"type": ["number", "null"]},
+                             "left": {"type": ["number", "null"]}, "right": {"type": ["number", "null"]}}
+            },
+            "sign": {
+              "type": ["object", "null"], "additionalProperties": false,
+              "description": "canopy_frame: one deeper sign band around a corner, flush with the frame's outer face; null = none.",
+              "properties": {
+                "corner": {"enum": ["front_left", "front_right", "back_left", "back_right", null]},
+                "along_m": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+                "drop_m": {"type": ["number", "null"]},
+                "end_radius_m": {"type": ["number", "null"], "description": "Vertical rounding at both free ends of the deeper sign, from the frame bottom down to the sign bottom; 0 or absent = square ends; at most drop_m."},
+                "text_chars": {"type": ["integer", "null"]}
+              }
+            }
+          }
+        },
+        "provenance": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "properties": {"presence": {"$ref": "#/$defs/source"}, "placement": {"$ref": "#/$defs/source"},
+                         "size": {"$ref": "#/$defs/source"}, "material": {"$ref": "#/$defs/source"},
+                         "text": {"$ref": "#/$defs/source"}}
+        },
+        "note": {"type": ["string", "null"]}
+      }
+    },
+    "requirement": {
+      "type": "object", "additionalProperties": false, "required": ["id", "kind"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "priority": {"enum": ["must", "should", null]},
+        "kind": {"enum": ["must_have", "must_not", "count", "text"]},
+        "element_kind": {"type": ["string", "null"]},
+        "side": {"enum": ["front", "back", "left", "right", "centre", null]},
+        "count": {"type": ["integer", "null"]},
+        "text": {"type": ["string", "null"]},
+        "quote": {"type": ["string", "null"], "description": "The words of the brief this requirement comes from."}
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "_comment": "Three files per picture under output/poc/truth/<pic>/. This example shows all three in one object; split them when writing. Pixel values are examples for an invented 1400 x 800 picture.",
+  "inventory.json": {
+    "schema_version": "truth.v1",
+    "picture_id": "pic_X",
+    "items": [
+      {"id": "fascia", "name": "门头横梁含占位字", "kind_hint": "canopy_frame", "hero": true},
+      {"id": "soffit", "name": "门头下的装饰带", "kind_hint": "unknown", "hero": false},
+      {"id": "bars", "name": "灯条一组", "kind_hint": "unknown", "hero": false},
+      {"id": "left_screen", "name": "大屏", "kind_hint": "tv", "hero": false},
+      {"id": "back_wall", "name": "后墙", "kind_hint": "wall", "hero": false},
+      {"id": "screen_row", "name": "后墙屏幕阵列", "kind_hint": "led_wall", "hero": true},
+      {"id": "cabinets", "name": "矮柜一排", "kind_hint": "storage_block", "hero": false},
+      {"id": "reception", "name": "接待柜台", "kind_hint": "shaped_counter", "hero": true},
+      {"id": "display_counter", "name": "展示柜台", "kind_hint": "counter", "hero": false},
+      {"id": "portal", "name": "侧面发光墙板", "kind_hint": "lit_panel", "hero": false},
+      {"id": "platform", "name": "地台", "kind_hint": "unknown", "hero": false},
+      {"id": "props", "name": "道具占位块", "kind_hint": "prop_block", "hero": false}
+    ]
+  },
+  "holdout_px.json": {
+    "schema_version": "truth.v1",
+    "picture_id": "pic_X",
+    "points": [
+      {"id": "h1", "part_id": "reception", "corner": "top_front_left", "uv_px": [310, 560], "note": "接待柜台顶面前左角"},
+      {"id": "h2", "part_id": "portal", "corner": "top_left", "uv_px": [1180, 420], "note": "侧面墙板画面上最左的上角（从展台一角拍，墙板斜着约 45°）"},
+      {"id": "h3", "part_id": "bars", "corner": "bottom_front_left", "uv_px": [520, 330], "note": "灯条组包围盒的前左下角"},
+      {"id": "h4", "part_id": "platform", "corner": "top_front_right", "uv_px": [1090, 690], "note": "地台顶面前右角"}
+    ]
+  },
+  "swatches.json": {
+    "schema_version": "truth.v1",
+    "picture_id": "pic_X",
+    "swatches": [
+      {"id": "s_dominant", "bbox_px": [700, 140, 760, 180], "role": "dominant"},
+      {"id": "s_secondary", "bbox_px": [400, 250, 440, 280], "role": "secondary"},
+      {"id": "s_accent", "bbox_px": [260, 620, 300, 650], "role": "accent"},
+      {"id": "s_screen", "bbox_px": [620, 470, 660, 500], "role": "screen"}
+    ]
+  },
+  "calibration_form": "panel.py calibration-form 生成一张 Markdown 表：每个清单项一行，填 present/missing，判为 present 的再填 ok/off/wrong（与 judge.v1 的 L1:/L2: 键一致）；决策人填完交回，指挥官算逐项一致率。"
+}

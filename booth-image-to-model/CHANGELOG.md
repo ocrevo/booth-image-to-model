@@ -1,3 +1,78 @@
+# 3.1.0-rc7 — 2026-10-24
+
+- 设计路线的新元素 `prop_block`（POC 工作包 P7-fam-propblock）：一件物品一个尺寸和位置都对的占位块（一个 `box`），`params.label` 是封闭枚举（laptop、tablet、monitor、phone、headphone、plant、robot_arm、robot、other），写进部件的 `evidence.note`；`size_m` 给外框，`z_m` 让它坐在桌面或层板上，`yaw_deg` 是绝对转角。缺省值（0.4 m 立方、label other、z_m 0）记进 `assumed`；高过限高就削到限高并记进 `adjustments`；几毫米厚的块（平放的手机、平板）只要块底到限高还有 0.01 m 就建出来。按决策人的决定，桌上的小件电子产品、耳机和支架、盆栽、机械臂和机器人用它代替，只按位置和尺寸算。
+- 自己摆放的件（`motifs.SELF_PLACING_KINDS`：`lit_panel`、`prop_block`）：`place_floor` 不再先按没转的宽度夹、不再记录，把请求的位置原样交给 builder；靠边摆放时一起交出封闭墙内表面围起来的空间（`Placed.span`）。builder 按转后的外廓只夹一次、用 `Frame.adjust` 只记一次；靠边的件不伸进封闭墙、开放一侧不伸出占地，放不进就拒绝；居中的件和 `box` 一样只夹在占地内。
+- 校验和构建一致：PARAM 检查拿到的 `form` 多带 `wall_thickness_m` 和编译器实际用的入口边 `entrance_side`，转后放不放得进、靠边截宽、不写 `yaw_deg` 的居中墙板朝向都按构建的同一套规则算；校验通过的设计构建时不丢（没写高度的凹龛检查除外），校验拒绝的设计构建也建不出，拒绝时给出能放下的最大尺寸。`design_compile.py` 只改了这两处，已有元素的输出逐字节不变（测试钉住模板和全部旧元素的哈希）。
+- 接手 litpanel 的收尾：转过的 `lit_panel` 放不进时在校验时就拒绝；凹龛按建出来的 12 段折线圆弧判；参数扫描测试覆盖四种展台、入口、墙厚和地台并构建全部合法设计；canopy 缺省 `z_m` 向内取整有测试守着；`params.groove_depth_m` 的说明按 kind 分别写。
+- 已有 `lit_panel` 设计的输出变化：转过的板靠边时只按转后外廓夹一次（位置可能和以前不同），靠边的板原来被悄悄挪动的那一步现在有记录，靠边的板不再伸进封闭墙；少数以前校验通过、构建时被丢的设计现在在校验时拒绝。
+- 为什么：POC 的本地客户渲染图里有桌上的小件物品和盆栽这类道具；按决策人的决定这些用尺寸和位置都对的块代替。证据：两行证据核对都已通过，其中一行第三轮才通过（前两轮分别发现一件小物品被相邻的块挡住，于是允许另出只删挡住它的块的补充图；几件很小的物品没有各自的块，按最保守的理解每件都要有）。代码验证六轮，每轮都找到更窄的'校验和构建不一致'或'记录不对'的情形，都已修好并有测试。
+- 已知限制：没写高度的 `lit_panel` 在 `z_m` 离限高不到 0.2 m 时校验仍会放行、构建时丢掉（litpanel 带来的，留给链 A 的下一个包）；builder 丢掉过大件时的理由里没有能放下的最大尺寸；极厚的板给出的最大宽度可能小于带槽墙板的最小宽度；闭环的家族目录还没有 `prop_block` 的说明行，`box` 那一行仍写着'道具的占位块'。
+- 测试：`tests/test_design_compile.py`、`tests/test_design_check.py` 新增的测试。不带 Blender 的全部 skill 单元测试 597 个通过（16 个跳过，与基线相同）；带 Blender 的回归留给 POC 的夜间队列。
+
+# 3.1.0-rc6 — 2026-10-23
+
+- 设计路线的新元素 `lit_panel`（POC 工作包 P7-fam-litpanel）：圆角墙板，四周内嵌一条发光灯槽。槽沿板的轮廓（含上面两个圆角）走成倒 U 到板底，槽底一层发光带，前表面在板面之后 `groove_depth_m`；参数 `corner_radius_m`、`inset_m`、`groove_width_m`、`groove_depth_m`、`light_hex`。可选 `niche`：板上有底、有后壁、不穿透的凹龛，开口上两角圆、下边方（`corner_radius_m` 等于半宽时是拱形），居中，`bottom_m` 从板底算，四周一圈和板面齐平的发光圈（`ring_width_m`）。整块板由同一组 `profile_extrusion` 拼成，不开洞，各段体积之和等于板减去槽和龛，没有缝和重叠。像 `partition` 一样放置；高度超出限高时截短并记进 `compile_report`，转过的板移进占地并记录，比占地还宽的板拒绝。缺省值逐个记进 `assumed`（宽、厚、高记进 `choices`）。发光强度是常数 1.5。
+- 接手 P7-fam-canopy 的三处：`z_m` 下限用和上限一样的容差，缺省 `z_m` 向内取整后记录（读回再校验能通过）；端头件对齐框格时半步取整的平局改用共用的 `_grid5`；recipes 写明端头件上的图案方向和框件不同。
+- 已有元素的输出逐字节不变（测试钉住模板和全部旧元素的哈希）；`canopy_frame` 只在取整平局处差 0.01 mm。
+- 为什么：POC 需要四周内嵌发光灯槽的墙板和带一圈灯的有底拱形凹龛；以前只能在墙外贴一根手算控制点的凸条，凹龛只能切穿整板再在后面另放一块板。证据：灯槽和凹龛两行各一次独立核对通过；灯槽在原图大小的主预览里很窄，另出了一张同一几何、只收窄相机的近景。代码一轮验证通过（白名单、先红后绿、变异和破坏性输入、独立的体积和几何抽样、契约）。
+- 已知限制：没写高度时，和高度有关的凹龛检查推迟到构建，放不下的凹龛在构建时连同理由进 `dropped`；转过的板宽度检查没算转角，非常大的圆角在按 12 段折线建出来时可能自交，这两种也是构建时连同理由丢掉（留给链 A 的下一个包）；`params.groove_depth_m` 的说明目前只写了 `lit_panel` 的含义；闭环的家族目录还没有 `lit_panel` 的说明行；含 `lit_panel` 的设计编译要多 0.2 到 1.5 秒（已有的轮廓三角化在每个部件上跑多次），不含它的设计不变慢。
+- 测试：`tests/test_design_compile.py`、`tests/test_design_check.py` 新增 16 个测试。不带 Blender 的全部 skill 单元测试 546 个通过（16 个跳过，与基线相同）；带 Blender 的回归留给 POC 的夜间队列。
+
+# 3.1.0-rc5 — 2026-10-23
+
+- 两种画在部件本身上的材质图案（POC 工作包 P7-mat-pattern），都是表面颜色，不是实体孔洞，不用外部图片。`material.pattern` 的 `type=dots`：`spacing`、`radius_m`（必须小于较小间距的一半）、`dot_color`，圆点成行列排在格子中心；可选 `coordinates`（新增 `box`：按每个着色点物体空间法线绝对值最大的轴选平面，并列时先 x 后 y，同一部件的立面和底面都铺得上圆点）、`offset`、`arc_origin_deg`（只配 `arc_length_z`）、`fade`（沿物体坐标的一根轴，半径从 `from_m` 处的全尺寸线性缩到 `to_m` 处的 0，`from_m` 一侧之外全尺寸，`to_m` 一侧之外没有圆点）。`type=grain`：`scale_m`、`strength`（0 到 1）、`grain_color`，三维噪声把部件颜色和颗粒色按 `strength` 混合；地面经设计的 `style.floor_pattern` 使用。
+- 图案按类型分发：`material_patterns.PATTERNS` 和节点签名 `SIGNATURES`（grid、projected、dots、grain），构建和 `validate_spec.py` 都经它。`blender_verify.py` 重开 .blend 后按类型重建并比对签名；读 `build_report.json` 的 `material_set` 比对投影版（UV Project 修改器算预期的修改器，跳过的文字应保持隐藏，不认识的 `material_set` 报错）；没有图案的部件不得带图案节点。
+- 接手 P7-render-dark 的两处：`look_unhandled` 有了端到端测试；data-contract 里 `dark_hall` 拒绝 Workbench 的措辞改准（开着 `--preview-client-look` 时这一遍走 Cycles，不拒绝）。
+- `grid` 的参数函数、节点函数和签名逐字不变，已有 spec 的构建结果不变。
+- 为什么：POC 需要带颗粒的地毯和成行、沿长度渐渐消失的穿孔圆点；以前只有均匀单色和网格线，圆点区还得另放一层薄片。证据：地毯颗粒一行第一次核对通过。圆点一行第一次核对判 pass，但判据比原图宽松；判据按原图改严后重出证据，第二次核对通过（第一次的结果留档）。代码一轮验证通过（白名单、先红后绿、变异和破坏性输入、契约）。
+- 已知限制：一个图案只有一根渐变轴，所以同一元素上与渐变轴平行的那一面不能渐变（整面满点）；`canopy_frame` 的部件绕 X 转过，物体坐标的 y 竖直向下，渐变轴要按物体坐标选；`box` 在弧面上于 45° 处换平面，对角附近的圆点会拉长；两段顶框相接处的圆点列会挨得很近；圆点是规则格子，不是不规则的穿孔排布；网页编辑器缩放时只跟着缩 `grid` 的字段，dots 的 `radius_m`、`fade` 和 grain 的 `scale_m` 不缩（缩得太小时 spec 无效，构建会明确拒绝）；`GRAIN_CONTRAST` 只在代码注释里说明。
+- 测试：`tests/test_material_patterns.py` 新增 22 个测试。不带 Blender 的全部 skill 单元测试 552 个通过（16 个跳过，与基线相同）；带 Blender 的回归留给 POC 的夜间队列。
+
+# 3.1.0-rc4 — 2026-10-23
+
+- 设计路线的新元素 `canopy_frame`（POC 工作包 P7-fam-canopy）：空心圆角顶框，`params.band_m` 四边带宽各设（内孔可以偏心），`corner_radius_m` 外圆角；`params.sign` 在一个角上接一段更深的标识楣板（`corner`、`along_m` 两条边上的长度、`drop_m` 加深量、`text_chars` 占位字个数、`end_radius_m` 端头从框底弯下到楣板底的凸圆半径，缺省 0 为方端）。框和楣板由同一圈轮廓切成的几段 `profile_extrusion` 组成，外立面共面、切面共享、端头件对齐到框的网格，没有缝和重叠；楣板切口只落在直边上（不在圆角弧上），校验时就拒绝放不下的参数（PARAM，给出真实范围）。没写 `hanging_allowed` 时在四角立柱，立柱停在它上方最低一块的底面。占位字由编译器生成，不抄需求或原图里的字母，来源记为 choice。只有 `id` 和 `kind` 的元素也能编译，缺省值逐个记进 `assumed`（`end_radius_m` 0 是唯一不记的）。
+- 链 A 的通用钩子（`design_compile.py` 只改这一次）：`motifs.OVERHEAD_BUILDERS`（头顶件，和 `header_band`、`ring` 一起排在落地件之前）、`PARAM_CHECKS`、`ROLE`；落地件和墙面件的 `BUILDERS` 也拿得到只读的 `Frame`（第五个参数或 `placed.frame`），能把缺省值、调整和警告写进 `compile_report`，builder 失败时回滚。设计元素的 `material.pattern` 和 `style.floor_pattern` 原样复制进 spec，由 `validate_spec` 校验。用 `--fit` 时校验按拟合的地面高度算。
+- 已有的元素输出逐字节不变（测试钉住模板和全部旧元素的哈希）。
+- 为什么：POC 需要四边带宽不同、内孔偏心、一角接一段更深的标识楣板且端头圆顺弯下的顶框；以前只能用内孔居中、四边同宽的 `rounded_ring` 加另拼的一块。证据经三次独立核对才通过：第一次证据设计的带宽与用拟合相机实测的不符；第二次楣板端头是方台阶（于是加了 `end_radius_m`）；第三次通过。代码经六轮验证（白名单、先红后绿、变异和破坏性输入、契约）。
+- 已知限制：占地尺寸超过 4 位小数时，校验和构建对外缘能否放下的判断可能不一致（构建按 4 位小数）；楣板比外圆角半径还短时表达不了；带 `end_radius_m` 的顶框加图案时，端头件的图案方向和框件不同。
+- 测试：`tests/test_design_compile.py`、`tests/test_design_check.py` 新增的测试。不带 Blender 的全部 skill 单元测试 530 个通过（16 个跳过，与基线相同）；带 Blender 的回归留给 POC 的夜间队列。
+
+# 3.1.0-rc3 — 2026-10-23
+
+- 暗场预览（POC 工作包 P7-render-dark）：`boothctl.py preview --look neutral|dark_hall`（缺省 `neutral`，命令行和输出与以前逐字节相同）。`dark_hall` 是深灰世界（约 0.02）、一块深色微反射的地面板（约 0.05，粗糙度 0.7）、台架灯降到原能量的一个固定比例；发光部件（`emission` 大于 0，含发光文字）的发光强度乘一个固定倍数，由 Cycles 把发光网格当光源照亮周围的地面和墙，光只从部件真实的发光面发出；`role` 为 `spotlight` 的部件另派生一盏向下的聚光灯（固定锥角，强度按 `emission` 和灯体面积换算），派生灯不写进 spec。
+- `dark_hall` 只用于预览：不配 `--preview` 时 `blender_build.py` 拒绝（地面板和派生灯是台架对象，过不了 `blender_verify`）；配 Workbench 时拒绝（Workbench 不画灯光），没给 `--engine` 时用 Cycles；预览采样上限在 `dark_hall` 下提高到 32（中性版仍是 8），要在命令里写 `--samples 32` 才用得上。`build_report.json` 记 `look`、`emissive_parts`、`derived_lights`、`look_unhandled`（没处理的部件和原因）、`preview_samples`；暗场预览的 `compare.json` 写明 `look`，它的展台像素比例和建议曝光与中性版不可比。打分只用中性版预览。
+- 为什么：发光件照亮周围地面和墙面的效果（"亮地面"、墙上的光扇），以前只能做出发光细条本身。第一版按"在包围盒最大的一对面上放面光"做，验证发现空心发光环会凭空多出一块铺满内孔的发光天花板，贴墙贴地的灯带会把灯放进墙里地里，于是改成由真实发光面照亮。两轮代码验证（白名单、先红后绿、变异和破坏性输入、契约）和一次 Cycles 证据核对通过：证据图里发光件下方的地面光晕、发光边周围的墙面和筒灯在墙上的扇形光斑，都和中性版对照确认是光照照出来的。
+- 已知限制：发光倍数、聚光灯强度系数和采样上限是第一次的估计值，证据图里看着合适；光斑形状不逐像素对齐原图。
+- 测试：`tests/test_material_patterns.py` 新增的测试用假 bpy 端到端跑 `blender_build.main()`（世界、地面板、台架灯比例、发光倍数、采样上限、报告字段）。不带 Blender 的全部 skill 单元测试 491 个通过（16 个跳过，与基线相同）；带 Blender 的回归留给 POC 的夜间队列。
+
+# 3.1.0-rc2 — 2026-10-23
+
+- 投影版材质（POC 工作包 P7-mat-projected）：新图案类型 `{type: projected}`，把 spec 的原图按拟合相机投到模型上，只用于和原图对比还原度。每个网格部件加一个以 spec 相机为投影器的 UV Project 修改器，Image Texture 节点接 `spec.source` 的图片；部件颜色的 alpha 照抄（玻璃仍半透明）。文字部件先转成网格再同样投影；转不了的隐藏，并以 `{id, reason}` 列进 `build_report.json` 的 `projected_uv_skipped`。背面和被遮挡面得到错误像素，第二视角里会拉伸；投影器就是渲染相机，所以正视角里看不出透明。
+- `blender_build.py --material-set neutral|projected`（缺省 `neutral`）：`material_patterns.material_set(spec, name)` 在内存里给出改写后的副本，run 文件夹里的 `spec.json` 仍是原样；`build_report.json` 记 `material_set`。投影的准备（加载原图、UV 层、修改器）按副本里有没有 `projected` 部件决定，所以 spec 文件自己写了 `projected` 的部件在缺省构建下也能建。`projected` 要求相机已拟合（`camera.fit_status` 不是 `unfitted`），否则 `validate_spec` 报错。
+- `boothctl.py preview --material-set`：取 `projected` 或 spec 里有投影部件时，没给 `--engine` 就用 Cycles（Workbench 只显示平色），明确给 `workbench` 时在启动 Blender 前拒绝（含 `--client-look`）。缺省 `neutral` 时传给 Blender 的命令行与以前逐字节相同。
+- 图案按类型分发：`material_patterns.PATTERNS = {type: (参数函数, 节点函数)}`，`validate_spec` 和 `blender_build` 都经它分发；`grid` 的节点签名不变；未知类型的错误信息列出已知类型。schema 的 `pattern` 改为 `grid` 和 `projected` 两个分支（`oneOf`）；已有 spec 的校验结果不变。`references/data-contract.md` 写上 `projected` 和 `--material-set`。
+- 已知限制：投影版构建过不了 `blender_verify.py`（文字变成网格、多了修改器），交付和复核用中性版；独立复核怎样对待投影版留给后续的图案工作包。
+- 为什么：POC 决定用两套材质（中性版和投影版），投影版让面板在同一视角下对比外观。三轮代码验证（白名单、先红后绿、变异和破坏性输入、契约）和一次 Cycles 证据核对通过；证据的前两次核对没过（一次是判据本身在投影版里看不出来，已删；一次是文字部件成了深色平块，已修）。
+- 测试：`tests/test_material_patterns.py` 新增 30 个测试（含用假 bpy 端到端跑 `blender_build.main()`）。不带 Blender 的全部 skill 单元测试 472 个通过（16 个跳过，与基线相同）；带 Blender 的回归留给 POC 的夜间队列。
+
+# 3.1.0-rc1 — 2026-10-22
+
+- `design-compile` 接受拟合相机（POC 工作包 P7-fit-camera）：新参数 `--fit <box_fit.json>` 和 `--image <图片>`，两个同时给或都不给，只给一个时退出码 2。有 `--fit` 时：只接受 `status` 为 `fitted` 的拟合，图片必须能打开且尺寸与 `fit.image` 一致，否则退出码 2、不写任何文件；相机从拟合按 spec 的相机字段原样复制（含 `fit_status`），不再自动生成主相机；`form.footprint_m` 在设计校验之前被拟合的 W、D 覆盖（超出 0.5 到 60 m 报 `design_invalid`），不确定项加一条 `footprint: fitted`，`scale.basis` 记为 `single_image_estimate`；地面高度取 `fit.floor_z`（`layout.platform_height_m` 在这种模式下不起作用）；spec 的 source 是复制进 `--out` 的原图，尺寸取 `fit.image`，不写 `design_canvas.png`；`compile_report.json` 多一个 `fit` 字段（路径和状态）。有 `--fit` 时 `--canvas` 不起作用。`design_compile.py` 自己的命令行也有这两个参数。
+- 不带这两个参数时输出逐字节不变：测试把基线代码在模板设计上编出的 `spec.json`、`compile_report.json`、`design_context.json` 的哈希写成常量；验证时在基线提交上独立复算一致，默认 1280 × 800 画布的命令行输出在基线和本版之间也逐字节相同。
+- 为什么：设计路线的 spec 以前只能对着一张灰画布，不能和原图叠图打分；POC 的闭环（读图器填 design，代码编译）需要它按原图尺寸和拟合相机渲染。用一个合成场景的拟合结果核对过：`validate_spec.py --check-source` 通过，相机与拟合逐字段相同。
+- SKILL.md 设计路线第 4 步补一句 `--fit`、`--image` 的用法。
+- 测试：`tests/test_design_compile.py` 新增五个测试。不带 Blender 的全部 skill 单元测试 442 个通过（16 个跳过，与基线相同）；带 Blender 的回归留给 POC 的夜间队列。
+
+# 3.0.0-rc1 — 2026-10-20
+
+- **产品方向变更，新增设计路线（预览版）**：设计师给一张参考图和一段需求，生成一个全新的展位模型，而不是还原这张图。参考图提供风格（配色、材质、气质）和结构起点（展位类型、开口面、构成）；需求决定增、删、改什么；表单里的长 × 宽和限高是事实，模型不得改动。图里不取任何尺寸，所以这条路线不用角点拟合和场景描述。原有的还原路线（第 0–3 节、`draft_compile.py`、`box_fit.py` 等）一字未改。
+- 新 schema `schemas/booth-design.v1.json`（design.json）：需求原文、表单、展位类型（须与开口面一致）、调色板三色（主色、辅色、强调色）、布局（墙高、墙厚、地台高、入口）、元素清单、需求清单。元素用词语定位：`side`（front/back/left/right/centre）、`along`（0..1）、`offset_m`，或直接给 `centre_m`；尺寸 `size_m` 留空就取默认值。每个元素都标来源：`brief`（设计师说的）、`reference`（从图里取的）、`prior`（通用默认）、`choice`（设计决定），取代原来的“不得编造”一条。
+- 新编译器 `scripts/design_compile.py`（命令 `boothctl.py design-compile --design --out [--canvas 1280x800]`）：只在封闭面上建墙（岛型不建）；开口面上的墙面类元素丢弃并说明原因；元素钳进占地和限高之内，平面重叠只报警告；从入口外侧、视高 1.6 m、焦距 35 mm 自动生成三分之二视角的主相机，距离由二分搜索确定，使整个展位入画；按调色板角色和表面（matte、satin、gloss、metal、glass、wood、fabric、自发光）配材质；写一张中性灰画布当作 spec 的 source（渲染器需要，不是照片）。文字只在 `provenance.text` 为 `brief` 且原文确实出现在需求里时才生成，否则拒绝编译（代码规则，不靠提示词）。每个部件都是 `inferred`，备注写明来源；默认值和设计决定分别记进 spec 的不确定项。编译后自动跑 `validate_spec`、`design_check`（上下文取自表单）和基础需求对照（`must_have` 含所在面、`must_not`、`count`、`text`）。全部成功之后才写出 `spec.json`、`design_canvas.png`、`compile_report.json`、`design_context.json`。
+- 新元素库 `scripts/motifs.py`，基于现有基元和宏，`components.py` 未改：`feature_wall`（板条或整板）、`graphic_panel`（可自发光成灯箱，可带需求文字）、`tv`（四面墙都可）、`led_wall`、`wall`（改周边墙的颜色或高度）、`header_band`（沿所选各边的门头，自由端自动加立柱，入口一侧外立面可放需求文字，可自发光）、`ring`（吊挂环；没写允许吊挂时自动加四根立柱）、`spotlights`（挂在门头或吊环下）、`counter`（可悬浮底座，正面可带文字）、`round_table`、`chair`、`seating_group`、`planter`、`display_plinth`、`storage_block`、`partition`、`box`。每个元素的所有部件共用一个编辑分组（元素 id）。
+- 新指南 `prompts/reference_card.md`（读图卡片：类型、开口面、构成、三色、材质、气质；不转写图上的文字和 logo，不取尺寸）和 `prompts/booth_design.md`（优先级：表单 > 需求 > 卡片 > 默认值；来源标注、文字规则、元素词表、定位方法、构图要点、需求拆解）；示例 `templates/design_template.json`（虚构的 6 × 4 m 一面开口展位）。SKILL.md 新增“D. Design route (preview)”一节。
+- 测试：新增 `tests/test_design_compile.py`。打包清单加入 `prompts/`。
+- 已知限制：一句话修改目前是由 agent 另存新版本 design.json 再编译，还没有补丁和误伤报告；没有自动避让；渲染沿用还原路线的客户风格；网页工作室还不支持这条路线。
+
 # 2.10.0-rc1 — 2026-10-19
 
 - 展位类型和开口边先读、再当检查用（迭代 I2，建立在 I0 评测工具和 I1 诚实拟合之上）。**效果有限**：见下面的“实测结果”和“已知限制”，它只抓住一类读图错误的一部分，没有测过真实图片。
@@ -92,7 +167,7 @@
 
 # 2.4.0-rc2 — 2026-10-14
 
-- 修复：`--hd-scale 3` 在 938×816 的图上（6.9 MP）让 OIDN 降噪器内存不足，Blender 崩溃，高清图损坏且没有 build_report。现在高清帧默认限制在 5 MP（`--hd-max-mp`，4.9 MP 实测可渲出），超出时降低有效倍数，必要时跳过高清；高清阶段前先写一份 `partial` 报告，渲染高清前释放持久数据；build_report 的 `hd` 记录请求倍数、有效倍数和是否被限制。
+- 修复：`--hd-scale 3` 在一张本地客户图上（3 倍后约 6.9 MP）让 OIDN 降噪器内存不足，Blender 崩溃，高清图损坏且没有 build_report。现在高清帧默认限制在 5 MP（`--hd-max-mp`，4.9 MP 实测可渲出），超出时降低有效倍数，必要时跳过高清；高清阶段前先写一份 `partial` 报告，渲染高清前释放持久数据；build_report 的 `hd` 记录请求倍数、有效倍数和是否被限制。
 - box_fit：残差超过 4 px 时状态为 `high_residual`，并点名最差的三个点与警告（此前会报 fitted）。
 - design_check：单个挤出的 U 形门头不再按平面范围误报带深（改为 not_checked）；椅子和桌子按 0.6 m 内归为一个座位组，避免椅腿被当成独立家具而产生大量窄间隙提示。
 - 依据：一张本地客户图的新流程计时（约 26 分钟，终版因上述崩溃失败）。

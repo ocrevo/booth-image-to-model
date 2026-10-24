@@ -20,7 +20,9 @@ from bpy_extras.object_utils import world_to_camera_view
 from common import read_json,write_json,digest,code_hash,file_sha,render_rig,material_rgba,hd_scale_for
 from validate_spec import validate
 from geometry import mesh_for
-from material_patterns import apply_grid
+from material_patterns import (apply_pattern,material_set,projected_parts,has_projected,MATERIAL_SETS,SOURCE_IMAGE,UV_LAYER,
+                               PROJECTED_MODIFIER,PROJECTED_MODIFIER_TYPE,LOOKS,look_settings,look_lights,look_report,rig_energy_scale,dark_hall_floor)
+NEUTRAL_PREVIEW_SAMPLE_CAP=8      # Cycles samples of an iteration preview in the neutral look, whatever --samples says
 
 
 def arguments():
@@ -35,7 +37,12 @@ def arguments():
     p.add_argument('--hd-samples',type=int,help='Cycles samples for the HD renders (default: --samples)')
     p.add_argument('--hd-max-mp',type=float,default=5.0,help='Cap for an HD frame in megapixels; the HD scale is lowered to fit (default 5)')
     p.add_argument('--hd-views',choices=('client','both'),default='both',help='HD images to write: the customer view only, or customer + second view')
+    p.add_argument('--material-set',choices=MATERIAL_SETS,default='neutral',help='neutral: the materials in the spec (default); projected: every part shows the source picture through the fitted camera (in memory only, the spec file is not changed)')
+    p.add_argument('--look',choices=LOOKS,default='neutral',help='neutral: the usual world and rig (default); dark_hall: dark world and floor, rig lights dimmed, glowing parts brighter and spotlight parts get a spot light (Cycles iteration previews only; it adds a floor plate)')
     a=p.parse_args(argv)
+    if a.look!='neutral' and not a.preview:raise ValueError('--look %s adds a floor plate and lights that are not part of the booth; use it with --preview only'%a.look)
+    if a.look!='neutral' and a.preview_engine=='workbench' and not a.preview_client_look:      # (--preview is already required above)
+        raise ValueError('--look %s only shows in Cycles (Workbench draws no lights); use --preview-engine cycles'%a.look)
     if a.hd_scale<1 or a.hd_scale>8:raise ValueError('hd-scale must be an integer from 1 to 8')
     if not a.hd_max_mp>0:raise ValueError('hd-max-mp must be positive')
     if a.preview and (a.render or a.part_masks):raise ValueError('--preview replaces --render/--part-masks; run them in a separate final build')
@@ -43,7 +50,7 @@ def arguments():
     return a
 
 
-def material(name,params,emission_only=False,component=None):
+def material(name,params,emission_only=False,component=None,emission_scale=1.0):
     m=bpy.data.materials.new(name);m.use_nodes=True
     n=m.node_tree.nodes;n.clear();out=n.new('ShaderNodeOutputMaterial')
     color=material_rgba(params)
@@ -57,9 +64,123 @@ def material(name,params,emission_only=False,component=None):
         shader.inputs['Roughness'].default_value=params.get('roughness',.5)
         shader.inputs['Metallic'].default_value=params.get('metallic',0)
         shader.inputs['Emission Color'].default_value=color
-        shader.inputs['Emission Strength'].default_value=params.get('emission',0)
-        if component is not None:apply_grid(n,m.node_tree.links,shader,params,component)
+        shader.inputs['Emission Strength'].default_value=params.get('emission',0)*emission_scale
+        if component is not None:apply_pattern(n,m.node_tree.links,shader,params,component)
     m.node_tree.links.new(shader.outputs[0],out.inputs['Surface']);return m
+
+
+PROJECTED_UV_NOTE=('projected parts: every projected part gets a UV Project modifier with the spec camera as projector; projected text parts '
+                   'are first converted to meshes. A part that could not be converted or projected is hidden from renders and listed '
+                   'with its reason in projected_uv_skipped (it is never left textured from a single picture pixel)')
+
+
+def text_to_mesh(c,curve,collections):
+    """Evaluate a text (FONT) part into a mesh datablock named after the part. Returns (mesh, None) or (None, reason).
+    On success the temporary object and the curve are removed; on failure the curve is kept for the fallback object."""
+    tmp=bpy.data.objects.new(c['id']+'_text_to_mesh',curve)
+    try:
+        collections['BOOTH_GRAPHICS'].objects.link(tmp)
+        bpy.context.view_layer.update()
+        mesh=bpy.data.meshes.new_from_object(tmp);mesh.name=c['id']
+    except (RuntimeError,ValueError,TypeError,AttributeError) as ex:
+        return None,'text to mesh conversion failed: '+str(ex)[:200]
+    finally:bpy.data.objects.remove(tmp)
+    bpy.data.curves.remove(curve)
+    return mesh,None
+
+
+def prepare_projection(look,source):
+    """Load and pack the picture the projected nodes read (once, only if some part of the look is projected)."""
+    if not has_projected(look):return False
+    image=bpy.data.images.load(str(source),check_existing=False);image.name=SOURCE_IMAGE
+    if not image.has_data:_=image.pixels[0]
+    image.pack()   # packed so the .blend stays self-contained
+    return True
+
+
+def build_parts(look,basis,collections,emission_scale=1.0):
+    """One Blender object per component of the look (the spec with the material set applied). Returns {id: object}."""
+    projected=set(projected_parts(look))
+    built={};unprojectable={}
+    for c in look['components']:
+        if c['kind']=='text':
+            data=bpy.data.curves.new(c['id'],'FONT');data.body=c['params']['body'];data.size=c['params']['size']
+            data.align_x='CENTER';data.align_y='CENTER';data.extrude=c['params'].get('extrude',.001)
+            # Keep Blender's built-in font. No container font files are distributed.
+            if c['id'] in projected:
+                # A FONT object has no UV map to project into: evaluate it into a mesh first (neutral builds keep the FONT object).
+                mesh,reason=text_to_mesh(c,data,collections)
+                if mesh is None:unprojectable[c['id']]=reason
+                else:data=mesh;data.uv_layers.new(name=UV_LAYER)
+        else:
+            v,f=mesh_for(c);data=bpy.data.meshes.new(c['id']);data.from_pydata(v,[],f);data.update()
+            if c['id'] in projected:data.uv_layers.new(name=UV_LAYER)
+            if c['kind'] in ('rounded_ring','cylinder'):
+                for i,p in enumerate(data.polygons):p.use_smooth=(i%4<2) if c['kind']=='rounded_ring' else (i%3==0)
+            elif c['kind']=='arc_panel':
+                # Only the curved inner/outer sides interpolate normals;
+                # level caps and radial end cuts remain flat.
+                for i,p in enumerate(data.polygons):p.use_smooth=i<len(data.polygons)-2 and i%4<2
+            elif c['kind']=='swept_strip':
+                for i,p in enumerate(data.polygons):p.use_smooth=i<len(data.polygons)-2 and i%4 in (1,3)
+            elif c['kind']=='box' and c['params'].get('bevel_radius',0)>0:
+                for p in data.polygons:
+                    coords=[data.vertices[i].co for i in p.vertices]
+                    # Large planar panels stay flat; spherical and cylindrical
+                    # bevel patches shade continuously without live modifiers.
+                    p.use_smooth=not any(max(v[axis] for v in coords)-min(v[axis] for v in coords)<1e-7 for axis in range(3))
+        obj=bpy.data.objects.new(c['id'],data)
+        group='BOOTH_GRAPHICS' if c['kind']=='text' else ('BOOTH_STRUCTURE' if c['critical'] else 'BOOTH_FURNITURE')
+        collections[group].objects.link(obj);obj.location=c['location'];obj.rotation_euler=[math.radians(x) for x in c['rotation_deg']]
+        obj['ownership']='booth';obj['component_id']=c['id'];obj['scope_id']=c['scope_id'];obj['primitive_kind']=c['kind']
+        if c.get('group'):obj['group']=c['group']
+        obj['dimension_basis']=basis;obj['evidence_status']=c['evidence']['status']
+        if c['id'] in unprojectable:obj.hide_render=True;obj['projection_skipped']=unprojectable[c['id']]
+        obj.data.materials.append(material(c['id']+'_material',c['material'],component=c,emission_scale=emission_scale));built[c['id']]=obj
+    return built
+
+
+def add_projectors(built,look,camera,resolution):
+    """UV Project modifier on each projected mesh part: the spec camera is the projector, aspect ratio from the picture.
+    Returns [{id, reason}] for projected parts that got none (a text part that could not become a mesh, or a modifier Blender
+    refused). Those parts are hidden from renders: they must never show one picture pixel as a flat colour."""
+    skipped=[]
+    for ident in projected_parts(look):
+        obj=built[ident]
+        if obj.type!='MESH':
+            obj.hide_render=True
+            skipped.append({'id':ident,'reason':obj.get('projection_skipped','not a mesh, so it has no projected UV map')});continue
+        try:
+            mod=obj.modifiers.new(PROJECTED_MODIFIER,PROJECTED_MODIFIER_TYPE)
+            mod.uv_layer=UV_LAYER
+            mod.projector_count=1;mod.projectors[0].object=camera
+            mod.aspect_x=float(resolution[0]);mod.aspect_y=float(resolution[1])
+        except (RuntimeError,TypeError,AttributeError) as ex:
+            if PROJECTED_MODIFIER in obj.modifiers:obj.modifiers.remove(obj.modifiers[PROJECTED_MODIFIER])
+            obj.hide_render=True
+            skipped.append({'id':ident,'reason':'UV Project modifier refused: '+str(ex)[:200]})
+    return skipped
+
+
+def add_look(settings,lights,bounds,world,collections):
+    """The dark_hall look: dark world, a dark rough floor plate under the booth, and a spot light for each spotlight part.
+    (The other glowing parts light the hall through their own surface; see emission_multiplier in main.)
+    All of it belongs to the render rig (never to the booth, never written to the spec). Returns the floor object."""
+    background=world.node_tree.nodes.get('Background')
+    grey=settings['world_color'];background.inputs['Color'].default_value=(grey,grey,grey,1);background.inputs['Strength'].default_value=settings['world_strength']
+    plate=dark_hall_floor(bounds);half=[plate['size'][0]/2,plate['size'][1]/2]
+    mesh=bpy.data.meshes.new('LOOK_FLOOR')
+    mesh.from_pydata([(-half[0],-half[1],0),(half[0],-half[1],0),(half[0],half[1],0),(-half[0],half[1],0)],[],[(0,1,2,3)]);mesh.update()
+    floor=bpy.data.objects.new('LOOK_FLOOR',mesh);collections['RENDER_RIG'].objects.link(floor)
+    floor.location=plate['location'];floor['ownership']='render_rig'
+    floor.data.materials.append(material('LOOK_FLOOR_material',{'color':[settings['floor_color']]*3+[1],'roughness':settings['floor_roughness'],'metallic':0}))
+    for index,light in enumerate(lights):
+        name='LOOK_%s_%d'%(light['part'],index)
+        data=bpy.data.lights.new(name,'SPOT');data.spot_size=math.radians(light['spot_angle_deg']);data.spot_blend=light['spot_blend'];data.shadow_soft_size=.05
+        data.energy=light['power_w'];data.color=light['color']
+        obj=bpy.data.objects.new(name,data);collections['RENDER_RIG'].objects.link(obj);obj.location=light['position'];obj['ownership']='render_rig'
+        obj.rotation_mode='QUATERNION';obj.rotation_quaternion=Vector(light['direction']).to_track_quat('-Z','Y')
+    return floor
 
 
 def point_camera(obj,target,roll_deg=0):
@@ -82,6 +203,11 @@ def main():
     finally:bpy.data.images.remove(source_probe)
     check=validate(spec,spec_path.parent,source_size=source_size)
     if not check['valid']:raise ValueError(json.dumps(check,ensure_ascii=False))
+    # The material set is applied to a copy in memory; the spec (and the spec.json written below) stays as it is.
+    look=material_set(spec,a.material_set)
+    if look is not spec:
+        look_check=validate(look,spec_path.parent,source_size=source_size)
+        if not look_check['valid']:raise ValueError(json.dumps(look_check,ensure_ascii=False))
     out=Path(a.out).resolve();out.mkdir(parents=True,exist_ok=True)
     lock=out/'.build.lock'
     try:os.close(os.open(str(lock),os.O_CREAT|os.O_EXCL|os.O_WRONLY))
@@ -116,35 +242,12 @@ def main():
         collections={}
         for name in ('BOOTH_STRUCTURE','BOOTH_FURNITURE','BOOTH_GRAPHICS','RENDER_RIG'):
             col=bpy.data.collections.new(name);scene.collection.children.link(col);collections[name]=col
-        built={}
-        for c in spec['components']:
-            if c['kind']=='text':
-                data=bpy.data.curves.new(c['id'],'FONT');data.body=c['params']['body'];data.size=c['params']['size']
-                data.align_x='CENTER';data.align_y='CENTER';data.extrude=c['params'].get('extrude',.001)
-                # Keep Blender's built-in font. No container font files are distributed.
-            else:
-                v,f=mesh_for(c);data=bpy.data.meshes.new(c['id']);data.from_pydata(v,[],f);data.update()
-                if c['kind'] in ('rounded_ring','cylinder'):
-                    for i,p in enumerate(data.polygons):p.use_smooth=(i%4<2) if c['kind']=='rounded_ring' else (i%3==0)
-                elif c['kind']=='arc_panel':
-                    # Only the curved inner/outer sides interpolate normals;
-                    # level caps and radial end cuts remain flat.
-                    for i,p in enumerate(data.polygons):p.use_smooth=i<len(data.polygons)-2 and i%4<2
-                elif c['kind']=='swept_strip':
-                    for i,p in enumerate(data.polygons):p.use_smooth=i<len(data.polygons)-2 and i%4 in (1,3)
-                elif c['kind']=='box' and c['params'].get('bevel_radius',0)>0:
-                    for p in data.polygons:
-                        coords=[data.vertices[i].co for i in p.vertices]
-                        # Large planar panels stay flat; spherical and cylindrical
-                        # bevel patches shade continuously without live modifiers.
-                        p.use_smooth=not any(max(v[axis] for v in coords)-min(v[axis] for v in coords)<1e-7 for axis in range(3))
-            obj=bpy.data.objects.new(c['id'],data)
-            group='BOOTH_GRAPHICS' if c['kind']=='text' else ('BOOTH_STRUCTURE' if c['critical'] else 'BOOTH_FURNITURE')
-            collections[group].objects.link(obj);obj.location=c['location'];obj.rotation_euler=[math.radians(x) for x in c['rotation_deg']]
-            obj['ownership']='booth';obj['component_id']=c['id'];obj['scope_id']=c['scope_id'];obj['primitive_kind']=c['kind']
-            if c.get('group'):obj['group']=c['group']
-            obj['dimension_basis']=spec['scale']['basis'];obj['evidence_status']=c['evidence']['status']
-            obj.data.materials.append(material(c['id']+'_material',c['material'],component=c));built[c['id']]=obj
+        # Projection is prepared from what the in-memory look contains, not from the name of the material set.
+        prepare_projection(look,source)
+        # Looks: neutral changes nothing. dark_hall (previews only) darkens the world, adds a floor plate, dims the rig, makes the glowing
+        # parts brighter so Cycles lights the hall from their real surface, and derives a spot light for each spotlight part (rig only, not in the spec).
+        look_cfg=look_settings(a.look);derived=look_lights(look,a.look);look_info=look_report(look,a.look)
+        built=build_parts(look,spec['scale']['basis'],collections,emission_scale=1.0 if look_cfg is None else look_cfg['emission_multiplier'])
         bpy.context.view_layer.update()
         corners=[obj.matrix_world@Vector(corner) for obj in built.values() for corner in obj.bound_box]
         bounds=[[min(v[i] for v in corners) for i in range(3)],[max(v[i] for v in corners) for i in range(3)]]
@@ -165,10 +268,14 @@ def main():
             return obj
         hero=camera('CAM_REFERENCE',spec['camera'])
         inspection=camera('CAM_INSPECTION',rig['inspection_camera'])
+        projected_skipped=add_projectors(built,look,hero,(scene.render.resolution_x,scene.render.resolution_y))
         for light in rig['lights']:
-            data=bpy.data.lights.new(light['name'],'AREA');data.energy=light['energy'];data.shape='DISK';data.size=light['size']
+            data=bpy.data.lights.new(light['name'],'AREA');data.energy=light['energy']*rig_energy_scale(a.look);data.shape='DISK';data.size=light['size']
             obj=bpy.data.objects.new(light['name'],data);collections['RENDER_RIG'].objects.link(obj)
             obj.location=light['position'];point_camera(obj,light['target']);obj['ownership']='render_rig'
+        if look_cfg is not None:
+            add_look(look_cfg,derived,rig['bounds'],world,collections)
+            if look_cfg['exposure_offset']:scene.view_settings.exposure+=look_cfg['exposure_offset']
         scene.camera=hero;scene['spec_sha256']=digest(spec);scene['builder_sha256']=code_hash();scene['scope']='booth_only'
         scene['delivery_status']='draft_unverified';scene['scale_basis']=spec['scale']['basis']
         scene['no_venue_geometry']=True
@@ -190,7 +297,7 @@ def main():
         write_json(out/'projected_landmarks.json',anchors)
         bpy.ops.wm.save_as_mainfile(filepath=str(blend),compress=True)
         stage('scene_and_first_save')
-        renders=[]
+        renders=[];preview_samples=[None]      # preview_samples: the Cycles samples a preview really used (None when it was not a Cycles preview)
         hd_info={'requested':a.hd_scale if a.render else None,'effective':None,'capped':False,'max_megapixels':a.hd_max_mp}
         def write_report(partial=False):
             """Build record. Written before the memory-heavy HD stage too, so a crash there still leaves a report."""
@@ -200,6 +307,7 @@ def main():
             write_json(out/'build_report.json',{'artifacts':hashed_artifacts,'status':'preview_only' if a.preview else 'built_not_verified','partial':partial,'blender_version':bpy.app.version_string,
                        'spec_sha256':digest(spec),'builder_sha256':code_hash(),'blend_sha256':file_sha(blend),
                        'booth_object_count':len(built),'renders':renders,'scope':'booth_only','render_rig':rig,
+                       'material_set':a.material_set,'look':a.look,'emissive_parts':look_info['emissive_parts'],'derived_lights':look_info['derived_lights'],'look_unhandled':look_info['unhandled'],'preview_samples':preview_samples[0],**({'projected_uv_skipped':projected_skipped,'projected_uv_note':PROJECTED_UV_NOTE} if has_projected(look) else {}),
                        'client_exposure_ev':a.client_exposure,'hd_scale':hd_info['effective'] if hd_info['effective'] is not None else (a.hd_scale if a.render else None),'hd':hd_info,
                        'hd_views':a.hd_views if a.render and a.hd_scale>1 else None,
                        'stage_seconds':dict(stages,total_in_script=round(sum(stages.values()),2)),
@@ -218,7 +326,7 @@ def main():
                 try:scene.view_settings.view_transform='Khronos PBR Neutral'
                 except TypeError:scene.view_settings.view_transform='Standard'
                 scene.view_settings.exposure=saved['exposure']+a.client_exposure
-                background.inputs['Color'].default_value=(.8,.8,.8,1);background.inputs['Strength'].default_value=.8
+                if look_cfg is None:background.inputs['Color'].default_value=(.8,.8,.8,1);background.inputs['Strength'].default_value=.8   # dark_hall keeps its dark world
                 scene.render.film_transparent=False
             else:
                 background.inputs['Color'].default_value=saved['color'];background.inputs['Strength'].default_value=saved['strength']
@@ -234,7 +342,8 @@ def main():
                 shading.light='STUDIO';shading.color_type='MATERIAL';shading.show_shadows=False;shading.show_cavity=False
                 scene.display.render_aa='8';scene.view_settings.view_transform='Standard'
             else:
-                scene.cycles.samples=min(max(1,a.samples),8)
+                preview_samples[0]=min(max(1,a.samples),NEUTRAL_PREVIEW_SAMPLE_CAP if look_cfg is None else look_cfg['preview_sample_cap'])
+                scene.cycles.samples=preview_samples[0]
             shoot(hero,'preview_render.png')
             if a.preview_client_look:
                 client_look(True);shoot(hero,'preview_client_look.png');client_look(False)

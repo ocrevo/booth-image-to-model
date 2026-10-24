@@ -259,33 +259,103 @@
                 "minimum": 0
               },
               "pattern": {
-                "type": "object",
-                "properties": {
-                  "type": {"const": "grid"},
-                  "spacing": {
-                    "type": "array",
-                    "items": {"type": "number", "exclusiveMinimum": 0},
-                    "minItems": 2,
-                    "maxItems": 2
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {"type": {"const": "projected"}},
+                    "required": ["type"],
+                    "additionalProperties": false
                   },
-                  "line_width": {"type": "number", "exclusiveMinimum": 0},
-                  "line_color": {
-                    "type": "array",
-                    "items": {"type": "number", "minimum": 0, "maximum": 1},
-                    "minItems": 3,
-                    "maxItems": 3
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {"const": "grid"},
+                      "spacing": {
+                        "type": "array",
+                        "items": {"type": "number", "exclusiveMinimum": 0},
+                        "minItems": 2,
+                        "maxItems": 2
+                      },
+                      "line_width": {"type": "number", "exclusiveMinimum": 0},
+                      "line_color": {
+                        "type": "array",
+                        "items": {"type": "number", "minimum": 0, "maximum": 1},
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "coordinates": {"enum": ["auto", "xy", "xz", "yz", "arc_length_z"]},
+                      "offset": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 2,
+                        "maxItems": 2
+                      },
+                      "arc_origin_deg": {"type": "number"}
+                    },
+                    "required": ["type", "spacing", "line_width", "line_color"],
+                    "additionalProperties": false
                   },
-                  "coordinates": {"enum": ["auto", "xy", "xz", "yz", "arc_length_z"]},
-                  "offset": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 2,
-                    "maxItems": 2
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {"const": "dots"},
+                      "spacing": {
+                        "type": "array",
+                        "items": {"type": "number", "exclusiveMinimum": 0},
+                        "minItems": 2,
+                        "maxItems": 2
+                      },
+                      "radius_m": {"type": "number", "exclusiveMinimum": 0},
+                      "dot_color": {
+                        "type": "array",
+                        "items": {"type": "number", "minimum": 0, "maximum": 1},
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "coordinates": {"enum": ["auto", "xy", "xz", "yz", "arc_length_z", "box"]},
+                      "offset": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 2,
+                        "maxItems": 2
+                      },
+                      "arc_origin_deg": {"type": "number"},
+                      "fade": {
+                        "oneOf": [
+                          {"type": "null"},
+                          {
+                            "type": "object",
+                            "properties": {
+                              "axis": {"enum": ["x", "y", "z"]},
+                              "from_m": {"type": "number"},
+                              "to_m": {"type": "number"}
+                            },
+                            "required": ["axis", "from_m", "to_m"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["type", "spacing", "radius_m", "dot_color"],
+                    "additionalProperties": false
                   },
-                  "arc_origin_deg": {"type": "number"}
-                },
-                "required": ["type", "spacing", "line_width", "line_color"],
-                "additionalProperties": false
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {"const": "grain"},
+                      "scale_m": {"type": "number", "exclusiveMinimum": 0},
+                      "strength": {"type": "number", "minimum": 0, "maximum": 1},
+                      "grain_color": {
+                        "type": "array",
+                        "items": {"type": "number", "minimum": 0, "maximum": 1},
+                        "minItems": 3,
+                        "maxItems": 3
+                      }
+                    },
+                    "required": ["type", "scale_m", "strength", "grain_color"],
+                    "additionalProperties": false
+                  }
+                ]
               }
             },
             "required": [

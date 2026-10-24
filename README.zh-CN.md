@@ -123,5 +123,5 @@ spec（[booth-spec-v2 schema](booth-image-to-model/schemas/booth-spec-v2.schema.
 
 ## 项目
 
-仓库已从 `Booth2CAD` 改名为 `booth-image-to-model`，旧链接会自动跳转。当前版本 2.10.0-rc1。欢迎按 [Apache License 2.0](LICENSE)
+仓库已从 `Booth2CAD` 改名为 `booth-image-to-model`，旧链接会自动跳转。当前版本 3.1.0-rc7。欢迎按 [Apache License 2.0](LICENSE)
 贡献；请先读 [CONTRIBUTING.md](CONTRIBUTING.md)，不要附带客户图片。引用本项目请用 [CITATION.cff](CITATION.cff)。

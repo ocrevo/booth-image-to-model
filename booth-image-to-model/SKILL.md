@@ -1,10 +1,10 @@
 ---
 name: booth-image-to-model
-description: Turn one photo or render of an exhibition booth (trade-show stand, 展台效果图) into an editable parametric 3D model (a JSON spec), a Blender scene and clean client renders without the hall, brands or people. Use when the user gives a booth picture and wants a 3D model, a .blend, a GLB, an editable spec or a clean render. 从一张展台图片生成可编辑的参数化三维模型、Blender 场景和去掉展厅、品牌、人物的客户渲染图。
+description: Turn one photo or render of an exhibition booth (trade-show stand, 展台效果图) into an editable parametric 3D model (a JSON spec), a Blender scene and clean client renders without the hall, brands or people. Use when the user gives a booth picture and wants a 3D model, a .blend, a GLB, an editable spec or a clean render. Also designs a NEW booth from a reference picture plus a brief (design route: the picture gives style and layout, the brief says what to change). 从一张展台图片生成可编辑的参数化三维模型、Blender 场景和去掉展厅、品牌、人物的客户渲染图。
 license: Apache-2.0 (see LICENSE)
 compatibility: Python 3.10+ with numpy, Pillow, scipy, jsonschema and trimesh (requirements.txt); Blender 4.0 or newer (5.2.2 tested) for .blend files and renders. The agent must be able to look at images and run shell commands.
 metadata:
-  version: "2.10.0-rc1"
+  version: "3.1.0-rc7"
   release-status: "native-tested-visual-refinement-required"
   language: "en"
 ---
@@ -24,6 +24,45 @@ out of the skill (the spec template) find it through `BOOTH_SKILL=<SKILL_DIR>`. 
 
 **Check the machine first:** `python "<SKILL_DIR>/scripts/boothctl.py" doctor` reports Python packages and Blender and prints the
 next step when something is missing. Earlier evidence is not proof of what this machine can do.
+
+## D. Design route (preview): a reference picture and a brief make a new booth
+
+Use this route when the user gives a reference picture **and** a brief (what to add, remove or change) and wants a new design
+rather than a copy. The picture gives style (palette, materials, mood) and a starting layout; the brief decides what changes; the
+user's footprint W x D and height limit are facts. Nothing is measured from the picture, so the fast route below (corner fit,
+scene description) is not used. You are the reader and the designer; write the two JSON files by hand.
+
+1. **Ask for the facts.** Footprint W x D (m) and height limit (m) are required; open sides are optional ("same as the picture"
+   by default). Put the picture in `input/` and work in a new `output/<job>/`.
+2. **Read the picture.** Follow [prompts/reference_card.md](prompts/reference_card.md): write `output/<job>/reference_card.json`
+   and tell the user in three to six plain lines what you took from it (type, open sides, layout, palette, materials, mood).
+   Never transcribe text or logos from the picture.
+3. **Design.** Follow [prompts/booth_design.md](prompts/booth_design.md): copy
+   [templates/design_template.json](templates/design_template.json) to `output/<job>/design_001.json` and write the design:
+   form copied as given, style and layout from the card unless the brief says otherwise, elements placed by side / along /
+   offset, provenance on every element (`brief`, `reference`, `prior`, `choice`), and the brief split into `requirements`.
+   Text on the booth only when the brief writes it, copied exactly.
+4. **Compile.** `python "<SKILL_DIR>/scripts/boothctl.py" design-compile --design output/<job>/design_001.json --out output/<job>/v001`
+   writes `spec.json`, `design_canvas.png` (a neutral canvas the renderer needs; not a photograph), `compile_report.json` and
+   `design_context.json`. Read the summary: `dropped`, `warnings` (overlaps), `brief.not_done`, `design_check` findings. Fix the
+   design (save it as the next `design_00N.json`, compile to `v00N`) until every `must` requirement is satisfied and there is no
+   advisory finding you cannot explain. To compare a design with a picture instead, add `--fit <box_fit.json> --image <picture>`
+   (both or neither): the fitted camera is copied as it is, the footprint becomes the fitted W x D (recorded as an uncertainty),
+   the floor height comes from the fit, and the copied picture replaces the neutral canvas, so the preview's comparison sheet means
+   something again. Without the two flags the output is unchanged.
+5. **Look once.** `boothctl.py preview --spec output/<job>/v00N/spec.json --out-root output/<job>/v00N/preview --client-look
+   --context output/<job>/v00N/design_context.json` (about half a minute). Look at `preview_client_look.png` against the reference
+   and the brief (hero readable, palette balance, clutter, path from the entrance, text legible) and do at most one more design
+   version. The comparison sheet of the preview is meaningless here (there is no photo); ignore it.
+6. **Final.** `boothctl.py build --spec output/<job>/v00N/spec.json --out output/<job>/final -- --render`, then
+   `boothctl.py verify --spec output/<job>/v00N/spec.json --blend output/<job>/final/booth.blend --report output/<job>/final/verify.json`.
+7. **Deliver** `client_render.png` and `inspection_render.png`, `booth.blend`, the spec, every `design_00N.json`, the requirements
+   result and the assumptions (the spec's `uncertainties`: defaults and choices). Say plainly that it is a new design generated
+   from the brief, with estimated sizes, not CAD.
+
+**One-sentence changes.** When the user asks for a change ("make the counter longer", "move the screen to the right wall"), copy
+the latest design to the next version, change only what the sentence asks, compile, preview, and say what changed. Keep the
+earlier versions so the user can go back.
 
 ## 0. Fast route (default)
 

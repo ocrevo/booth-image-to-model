@@ -1,6 +1,6 @@
 [English](README.md) · **简体中文**
 
-# booth-image-to-model（agent skill）· v2.10.0-rc1
+# booth-image-to-model（agent skill）· v3.1.0-rc7
 
 一个 agent skill：从一张展台照片或效果图生成可编辑的参数化三维模型（JSON spec）、Blender 场景，以及去掉展厅、品牌和人物的客户渲染图。
 agent 看图并判断哪些属于展台；脚本负责拟合相机、构建几何、校验和渲染。尺寸是从单张图估计的，不是实测值。
@@ -65,7 +65,8 @@ python ~/.claude/skills/booth-image-to-model/scripts/boothctl.py doctor
 | `scripts/` | 引擎：`boothctl.py`（doctor、compile、preview、build、verify、glb、overlay、design-check）、`box_fit.py`、`camera_math.py`、`components.py`、`validate_spec.py`、Blender 脚本 |
 | `schemas/` | JSON schema：spec（`booth-spec-v2`）、场景描述、设计先验 |
 | `references/` | 详细规则和格式：观察协议、数据契约、场景描述、构件 recipes、设计先验、重建 QA |
-| `templates/` | spec 脚本模板 |
+| `templates/` | spec 脚本模板和 `design_template.json`（设计路线） |
+| `prompts/` | 设计路线：怎样把参考图读成卡片、怎样写新设计 |
 | `tests/`、`examples/`、`validation/`、`FILE_MANIFEST.json`、`release_status.json` | 测试、合成示例和发布证据（运行时不需要；运行时 zip 不含它们，只保留 `release_status.json` 和 `examples/regression/annotations.template.json`） |
 
 版本记录见 [CHANGELOG.md](CHANGELOG.md)。许可证：[Apache-2.0](LICENSE)。

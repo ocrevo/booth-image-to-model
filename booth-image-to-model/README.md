@@ -1,6 +1,6 @@
 **English** · [简体中文](README_CN.md)
 
-# booth-image-to-model (agent skill) · v2.10.0-rc1
+# booth-image-to-model (agent skill) · v3.1.0-rc7
 
 An agent skill that turns one exhibition-booth photo or render into an editable parametric 3D model (a JSON spec), a Blender scene
 and clean client renders without the hall, brands or people. The agent looks at the picture and decides what belongs to the booth;
@@ -69,7 +69,8 @@ that folder.
 | `scripts/` | The engine: `boothctl.py` (doctor, compile, preview, build, verify, glb, overlay, design-check), `box_fit.py`, `camera_math.py`, `components.py`, `validate_spec.py`, Blender scripts |
 | `schemas/` | JSON schemas: the spec (`booth-spec-v2`), the scene description, design priors |
 | `references/` | Detailed rules and formats (Chinese): observation protocol, data contract, scene description, component recipes, design priors, QA |
-| `templates/` | A spec script template |
+| `templates/` | A spec script template and `design_template.json` (design route) |
+| `prompts/` | How to read a reference picture into a card and write a new design (design route) |
 | `tests/`, `examples/`, `validation/`, `FILE_MANIFEST.json`, `release_status.json` | Tests, a synthetic example and release evidence (not needed at run time; the runtime zip leaves them out except `release_status.json` and `examples/regression/annotations.template.json`) |
 
 Releases and their evidence: [CHANGELOG.md](CHANGELOG.md). License: [Apache-2.0](LICENSE).

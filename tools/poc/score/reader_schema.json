@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "reader.v1: output of the reading model (docs/poc/02-architecture-and-contracts.md section 4.1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "picture_id", "design", "evidence", "unexpressible"],
+  "properties": {
+    "schema_version": {"const": "reader.v1"},
+    "picture_id": {"type": "string", "minLength": 1},
+    "design": {
+      "$ref": "../../../booth-image-to-model/schemas/booth-design.v1.json",
+      "description": "One complete booth-design.v1 object. The schema is closed, so evidence and unexpressible items live in this wrapper. form.footprint_m and form.open_sides are overwritten by code from box_fit.json."
+    },
+    "evidence": {
+      "type": "object",
+      "description": "element id -> pixel box of that element in the picture",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["bbox_px", "confidence"],
+        "properties": {
+          "bbox_px": {"type": "array", "items": {"type": "number", "minimum": 0}, "minItems": 4, "maxItems": 4},
+          "confidence": {"enum": ["high", "medium", "low"]}
+        }
+      }
+    },
+    "unexpressible": {
+      "type": "array",
+      "description": "things in the picture that the family catalogue cannot build",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["what", "nearest_kind", "why"],
+        "properties": {
+          "what": {"type": "string", "minLength": 1},
+          "nearest_kind": {"type": ["string", "null"]},
+          "why": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

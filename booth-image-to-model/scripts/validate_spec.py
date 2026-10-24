@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from common import finite_vector,file_sha,read_json,write_json
 from geometry import mesh_for,positive,transform_point
-from material_patterns import grid_parameters
+from material_patterns import pattern_parameters
 
 PARAM_KEYS={
  'box':({'size'},{'size','bevel_radius','bevel_mode','segments_per_corner'}),
@@ -291,7 +291,10 @@ def validate(spec, source_root=None, source_size=None):
                 if not finite_vector([value],1) or not 0<=value<=1: error('MATERIAL_PARAMETER',path,key)
             val=mat.get('emission',0)
             if not finite_vector([val],1) or val<0: error('MATERIAL_PARAMETER',path,'emission')
-            try:grid_parameters(mat,c)
+            try:
+                pattern_parameters(mat,c)
+                if isinstance(mat.get('pattern'),dict) and mat['pattern'].get('type')=='projected' and spec['camera'].get('fit_status')=='unfitted':
+                    raise ValueError('projected pattern needs a fitted camera (camera.fit_status landmark_fitted or reviewed), not unfitted')
             except (KeyError,TypeError,ValueError,OverflowError) as ex:error('MATERIAL_PATTERN',path,str(ex))
         warnings.extend(coplanar_overlaps([c for c in spec['components'] if isinstance(c,dict) and c.get('id') in meshes],meshes))
         floors=[c for c in comps.values() if c.get('role')=='floor']

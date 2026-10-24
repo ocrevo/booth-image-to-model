@@ -1,0 +1,8 @@
+{
+  "schema_version": "gates.v1",
+  "G1": {"status": "pending", "value": null, "threshold": "spearman_total >= 0.8 and spearman_edge >= 0.8", "measured_at": null, "evidence_path": null, "memo_path": null, "decided_by": null, "decided_at": null},
+  "G2": {"status": "pending", "value": null, "threshold": "C_total >= 70 and owner_panel_agreement >= 0.80", "measured_at": null, "evidence_path": null, "memo_path": null, "decided_by": null, "decided_at": null},
+  "G3": {"status": "pending", "value": null, "threshold": "Cprime_total >= 85 and expressible_ratio >= 0.90", "measured_at": null, "evidence_path": null, "memo_path": null, "decided_by": null, "decided_at": null},
+  "G4": {"status": "pending", "value": null, "threshold": "synthetic_improves_on_2_of_3 (round 4 better than round 1 and no round more than 10 % worse than the previous) and min(final/Cprime) >= 0.85 and max_minutes <= 15", "measured_at": null, "evidence_path": null, "memo_path": null, "decided_by": null, "decided_at": null},
+  "G5": {"status": "pending", "value": null, "threshold": "median_total >= 70 and min_total >= 50 and owner_nod", "measured_at": null, "evidence_path": null, "memo_path": null, "decided_by": null, "decided_at": null}
+}

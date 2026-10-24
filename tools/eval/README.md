@@ -6,6 +6,9 @@ standard library, numpy and Pillow only (scipy is the skill's dependency and jso
 a harness module). It calls the skill only through its command-line tools, in subprocesses, so two versions of the skill never
 share a Python process and one set of cases can be run against both.
 
+Status (2026-10-22): the iterations I3 to I7 are paused; the harness is reused by the proof of concept as its second
+anchor (see [docs/poc/03-scoring-spec.md](../../docs/poc/03-scoring-spec.md), section 6).
+
 Numbers from this harness describe **synthetic** booths. Read [What a synthetic set cannot show](#what-a-synthetic-set-cannot-show)
 before quoting any of them. The recorded baseline of the current engine is in [BASELINE.md](BASELINE.md); the first comparison
 with it is [RESULTS-I1.md](RESULTS-I1.md) (round 1, superseded), the question "does holding corners out of the fit cost accuracy?" is

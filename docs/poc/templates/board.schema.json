@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "board.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "updated", "day", "packages", "leases", "blender_token"],
+  "properties": {
+    "schema_version": {"const": "board.v1"},
+    "updated": {"type": "string"},
+    "day": {"type": "integer", "minimum": 0},
+    "packages": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status"],
+        "properties": {
+          "status": {"enum": ["todo", "leased", "in_progress", "verify", "merged", "blocked", "dropped"]},
+          "owner": {"type": ["string", "null"]},
+          "branch": {"type": ["string", "null"]},
+          "worktree": {"type": ["string", "null"]},
+          "verifier": {"type": ["string", "null"]},
+          "started": {"type": ["string", "null"]},
+          "finished": {"type": ["string", "null"]},
+          "report_path": {"type": ["string", "null"]},
+          "note": {"type": ["string", "null"]},
+          "blocked_from": {"enum": ["todo", "leased", "in_progress", "verify", null], "description": "set by board.py while the status is blocked: the status a package returns to"}
+        }
+      }
+    },
+    "leases": {"type": "object", "additionalProperties": {"type": "string"}},
+    "blender_token": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["holder", "since", "purpose"],
+      "properties": {
+        "holder": {"type": ["string", "null"]},
+        "since": {"type": ["string", "null"]},
+        "purpose": {"type": ["string", "null"]}
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "board.v1",
+      "updated": "2026-01-01T09:00:00",
+      "day": 1,
+      "packages": {
+        "P0": {"status": "in_progress", "owner": "commander", "branch": "poc/p0", "worktree": null, "verifier": null, "started": "2026-01-01T09:00:00", "finished": null, "report_path": null, "note": null},
+        "PT": {"status": "todo"},
+        "P1": {"status": "todo"},
+        "P4": {"status": "todo"}
+      },
+      "leases": {},
+      "blender_token": {"holder": null, "since": null, "purpose": null}
+    }
+  ]
+}

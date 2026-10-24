@@ -1,5 +1,9 @@
 # Design review, October 2026
 
+> **Status (2026-10-22).** Superseded for execution by the proof-of-concept guideline in [docs/poc/](poc/README.md):
+> iterations I3 to I7 are paused and the priors review (I4) was removed. This document stays as the record of why
+> I0 to I2 were done and what they measured.
+
 A review of how `booth-image-to-model` reads a picture and builds a model, and the order in which we will make it more accurate
 and faster. It is written for contributors and takes about ten minutes to read. The rules for working in the repository are in
 [AGENTS.md](../AGENTS.md); the steps an agent follows are in [SKILL.md](../booth-image-to-model/SKILL.md); the evaluation harness
@@ -153,7 +157,7 @@ left out in the picture to show the inside. It is not a real opening, and the sc
 3. **Discrete spec candidates.** Common footprints, module grids, height levels and standard part sizes are scored as candidates
    and then refined. They are soft constraints only: when the picture disagrees, the fit falls back to free fitting and reports
    whether each value came from a standard size, from the fit or from an assumption. They need an owner's review first; the review
-   table is [priors-review.md](priors-review.md).
+   table was in `docs/priors-review.md` (removed on 2026-10-22 with the pause of I4).
 4. **Fill in by surface.** Floor, each elevation, overhead and interior are filled separately, each cell a closed choice.
 5. **Repetition and symmetry.** Chairs, spotlights and fins are read as a count and a start and end range; code spaces them.
 6. **Construction rules for validation and completion.** For example, an overhead structure needs support; hidden parts take type
@@ -285,7 +289,7 @@ This table is updated when a step lands. A step is "done" only when its before a
 | I1 Honest fit | Done on 2026-10-19, with one known limitation | Final measurement and verdict: [RESULTS-I1c.md](../tools/eval/RESULTS-I1c.md). Earlier rounds: [RESULTS-I1.md](../tools/eval/RESULTS-I1.md) (first design) and [RESULTS-I1b-arms.md](../tools/eval/RESULTS-I1b-arms.md) (held-out corners against none, round-1 code). Over all 288 synthetic runs the median corner error fell from 0.34 % to 0.10 % of the image diagonal, the camera rotation error from 1.26 to 0.40 degrees and the part placement error from 0.075 m to 0.025 m; one 30 px outlier was named in 29 of 30 runs with 8 or more fitted corners. Valid input is sent to review in 14.1 % of the runs against 8.6 % before (criterion 3 missed by 0.5 point), mostly on cropped pictures |
 | I2 Type and open sides | Done on 2026-10-19, with a modest measured effect | Final measurement and verdict: [RESULTS-I2.md](../tools/eval/RESULTS-I2.md); design, checks and acceptance criteria: [the I2 section](#i2-type-and-open-sides). On the synthetic suite a wrong open side is sent to review in 50.0 % of the runs against 3.1 % before (the topology checks alone add 40.6 points), and a booth turned half way round in 46.9 % against 3.1 %. The topology adds no review flag to correct input (0 of 288 runs) and changes no accuracy number. Walls on a declared open side fell from 10.2 % of the runs to 0. Mirrored pictures were already flagged at 100 % by the fit, so the topology adds nothing there. Criterion 1 was worded loosely: met when pooled (83.3 %), not met for the wrong open sides alone (50.0 %). Limits: no real reader and no real picture, synthetic cameras always outside an open side, and the mean compile time was 0.93 s higher than in the I1 run, with no cause established |
 | I3 Rectified views | Next | Not started. It is next in the order of section 7, to be confirmed with the owner once the I2 numbers have been seen |
-| I4 Discrete spec candidates | Planned | Waits for the owner's review in [priors-review.md](priors-review.md) |
+| I4 Discrete spec candidates | Planned | Paused on 2026-10-22; the review table `docs/priors-review.md` was removed |
 | I5 Corners once, `iterate` | Planned | |
 | I6 Colour and region check | Planned | |
 | I7 Fit feedback round | Planned | |

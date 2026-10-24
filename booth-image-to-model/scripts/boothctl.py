@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 from common import read_json,write_json,digest,file_sha,code_hash,fingerprints,cache_valid,find_blender as locate_blender
 from validate_spec import validate
+from material_patterns import material_set as rewrite_materials,has_projected,MATERIAL_SETS,LOOKS
 
 
 MIN_BLENDER=(4,0)        # tested with 5.2.2
@@ -147,12 +148,40 @@ def resolve_preview_engine(out_root,engine):
     return engine,False
 
 
-def preview(spec_path,out_root,blender=None,engine='workbench',samples=8,timeout=600,context=None,client_look=False,client_exposure=None):
+LOOK_COMPARE_NOTE=('This preview used the %s look (dark world, an opaque floor plate, dimmed rig lights): booth_pixel_fraction and the suggested '
+                   'client exposure are not comparable with neutral previews. Score with neutral previews only.')
+
+
+def annotate_compare(run,look):
+    """Record the look in compare.json and say its pixel numbers are not comparable with a neutral preview. Neutral previews are left as they are."""
+    path=Path(run)/'compare.json';data=read_json(path)
+    data['look']=look;data['look_note']=LOOK_COMPARE_NOTE%look
+    write_json(path,data)
+
+
+def preview(spec_path,out_root,blender=None,engine=None,samples=8,timeout=600,context=None,client_look=False,client_exposure=None,material_set='neutral',look='neutral'):
     """Validate -> fresh numbered run -> one matched-camera render -> comparison sheet.
-    Iteration aid only; the final delivery still uses a full --render build and blender_verify."""
+    Iteration aid only; the final delivery still uses a full --render build and blender_verify.
+    engine: workbench (default) or cycles; with projected materials (the material set or parts written in the spec) the default is cycles.
+    material_set: neutral (the spec's own materials) or projected (the picture projected through the fitted camera).
+    look: neutral (default, nothing changes) or dark_hall (dark world and floor; emissive parts light their surroundings; Cycles only)."""
     spec_path=Path(spec_path).resolve();spec=read_json(spec_path)
     check=validate(spec,spec_path.parent)
     if not check['valid']:return {'status':'invalid_spec','errors':check['errors'][:10]}
+    if material_set not in MATERIAL_SETS:return {'status':'invalid_spec','errors':[{'code':'MATERIAL_SET','path':'material_set','message':'Unknown material set; known sets: '+', '.join(MATERIAL_SETS)}]}
+    if material_set!='neutral':     # the same in-memory rewrite the build does; refuses before Blender starts
+        look_check=validate(rewrite_materials(spec,material_set),spec_path.parent)
+        if not look_check['valid']:return {'status':'invalid_spec','errors':look_check['errors'][:10]}
+    if look not in LOOKS:return {'status':'invalid_options','message':'Unknown look; known looks: '+', '.join(LOOKS)}
+    if look=='dark_hall' and engine=='workbench':     # Workbench draws no lights, so the dark look would show nothing
+        return {'status':'invalid_options','message':'The dark_hall look only shows in Cycles; Workbench draws no lights. Use --engine cycles or leave --engine out.'}
+    if look=='dark_hall' and engine is None:engine='cycles'
+    material_look=rewrite_materials(spec,material_set)
+    if has_projected(material_look):             # Workbench shows only each part's flat colour, never the projected picture
+        if engine=='workbench':     # also with --client-look: an explicit choice is refused, never switched silently
+            return {'status':'invalid_options','message':'The projected materials only show in Cycles; Workbench would show flat colours. Use --engine cycles or leave --engine out.'}
+        if engine is None:engine='cycles'
+    if engine is None:engine='workbench'
     out_root=Path(out_root).resolve();out_root.mkdir(parents=True,exist_ok=True)
     if client_look:engine='cycles'      # the customer look needs the path tracer
     engine,sticky_used=resolve_preview_engine(out_root,engine)
@@ -160,7 +189,7 @@ def preview(spec_path,out_root,blender=None,engine='workbench',samples=8,timeout
     run=out_root/f'preview_{n:03d}'
     cmd=[find_blender(blender),'--background','--factory-startup','--disable-autoexec','--python-exit-code','1',
          '--python',str(Path(__file__).resolve().parent/'blender_build.py'),'--','--spec',str(spec_path),'--out',str(run),
-         '--preview','--preview-engine',engine,'--samples',str(samples)]+(['--preview-client-look'] if client_look else [])+(['--client-exposure',str(client_exposure)] if client_exposure is not None else [])
+         '--preview','--preview-engine',engine,'--samples',str(samples)]+(['--preview-client-look'] if client_look else [])+(['--client-exposure',str(client_exposure)] if client_exposure is not None else [])+(['--material-set',material_set] if material_set!='neutral' else [])+(['--look',look] if look!='neutral' else [])
     started=time.time()
     proc=subprocess.run(cmd,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=timeout,check=False)
     fallback=None
@@ -176,6 +205,7 @@ def preview(spec_path,out_root,blender=None,engine='workbench',samples=8,timeout
         return {'status':'build_failed','run':str(run),'seconds':seconds,'fallback':fallback,'log_tail':((proc.stdout or '')+(proc.stderr or ''))[-2000:]}
     from preview_compare import sheet  # numpy/Pillow only for this optional step
     summary=sheet(run)
+    if look!='neutral':annotate_compare(run,look)
     report=read_json(run/'build_report.json')
     stages=report.get('stage_seconds') or {}
     design=None
@@ -187,7 +217,7 @@ def preview(spec_path,out_root,blender=None,engine='workbench',samples=8,timeout
     inside=stages.get('total_in_script')
     return {'status':'preview_ready','run':str(run),'seconds':seconds,'fallback':fallback,'engine_used':'cycles' if (fallback or sticky_used) else engine,
             'stage_seconds':stages,'design_findings':design,'client_look':summary.get('client_look'),'startup_overhead_s':round(seconds-inside,1) if isinstance(inside,(int,float)) else None,
-            'sheet':summary['sheet'],
+            **({'look':look} if look!='neutral' else {}),'sheet':summary['sheet'],
             'landmark_median_px':summary['landmark_median_px'],'landmark_max_px':summary['landmark_max_px'],
             'worst_landmarks':sorted(summary['landmarks'],key=lambda r:-r['err_px'])[:5],
             'warnings':[{k:w[k] for k in ('code','ids','plane') if k in w} for w in check['warnings']][:20]}
@@ -208,6 +238,11 @@ def main():
     s=sp.add_parser('compile',help='Compile a scene description (pixels + building blocks) into a spec; no model call')
     s.add_argument('--scene',required=True);s.add_argument('--image',required=True);s.add_argument('--out',required=True)
     s.add_argument('--fit',help='Existing box_fit.json to reuse');s.add_argument('--seeds',type=int,default=40)
+    s=sp.add_parser('design-compile',help='Compile a design (design.json: brief, form, style, elements in metres) into a spec; no model call')
+    s.add_argument('--design',required=True);s.add_argument('--out',required=True)
+    s.add_argument('--canvas',default='1280x800',help='render size WIDTHxHEIGHT of the design canvas (default 1280x800)')
+    s.add_argument('--fit',help='box_fit.json with status fitted: use its camera, footprint and floor height (needs --image)')
+    s.add_argument('--image',help='the picture the fit was made on, used as the spec source (needs --fit)')
     s=sp.add_parser('build',help='Final build in a fresh background Blender: booth.blend and, with --render, the renders. Options after -- go to blender_build.py')
     s.add_argument('--spec',required=True);s.add_argument('--out',required=True);s.add_argument('--blender');s.add_argument('--timeout',type=int,default=7200)
     s.add_argument('build_args',nargs=argparse.REMAINDER,help='e.g. -- --render --samples 32 --hd-scale 3')
@@ -215,10 +250,12 @@ def main():
     s.add_argument('--spec',required=True);s.add_argument('--blend',required=True);s.add_argument('--report',required=True);s.add_argument('--blender')
     s=sp.add_parser('preview',help='Fast iteration render + comparison sheet in a fresh numbered folder')
     s.add_argument('--spec',required=True);s.add_argument('--out-root',required=True);s.add_argument('--blender')
-    s.add_argument('--engine',choices=('workbench','cycles'),default='workbench');s.add_argument('--samples',type=int,default=8)
+    s.add_argument('--engine',choices=('workbench','cycles'),default=None,help='default workbench, or cycles when the model has projected materials or the dark_hall look (Workbench cannot show them)');s.add_argument('--samples',type=int,default=8)
     s.add_argument('--context',help='Optional design-check context JSON (height limit, hanging allowed, open sides, LED module)')
     s.add_argument('--client-look',action='store_true',help='Also render the customer look (Cycles) and report clipping with a suggested --client-exposure')
     s.add_argument('--client-exposure',type=float,help='Exposure offset in EV for the customer look (default -1.0), to try the suggested value')
+    s.add_argument('--material-set',choices=MATERIAL_SETS,default='neutral',help='neutral: the spec materials (default); projected: the source picture projected through the fitted camera onto every part (needs a fitted camera)')
+    s.add_argument('--look',choices=LOOKS,default='neutral',help='neutral: the usual render (default); dark_hall: dark world and floor, glowing parts light the floor and walls (Cycles only; for comparison previews)')
     a=p.parse_args()
     try:
         if a.command=='design-check':
@@ -232,6 +269,9 @@ def main():
         if a.command=='compile':
             from draft_compile import run as compile_run
             code,result=compile_run(a.scene,a.image,a.out,a.fit,a.seeds);print(json.dumps(result,ensure_ascii=False,indent=2));return code
+        if a.command=='design-compile':
+            from design_compile import run as design_compile_run
+            code,result=design_compile_run(a.design,a.out,a.canvas,a.fit,a.image);print(json.dumps(result,ensure_ascii=False,indent=2));return code
         if a.command=='overlay':
             from overlay import draw_overlay  # Pillow only for this optional step
             result=draw_overlay(read_json(a.fit),a.image,a.out);print(json.dumps(result,ensure_ascii=False,indent=2));return 0
@@ -247,7 +287,7 @@ def main():
             if code!=0:result['log_tail']=log
             print(json.dumps(result,ensure_ascii=False,indent=2));return 0 if code==0 else 2
         if a.command=='preview':
-            result=preview(a.spec,a.out_root,a.blender,a.engine,a.samples,context=a.context,client_look=a.client_look,client_exposure=a.client_exposure)
+            result=preview(a.spec,a.out_root,a.blender,a.engine,a.samples,context=a.context,client_look=a.client_look,client_exposure=a.client_exposure,material_set=a.material_set,look=a.look)
             print(json.dumps(result,ensure_ascii=False,indent=2));return 0 if result['status']=='preview_ready' else 2
         if a.command=='doctor':result=doctor(a.blender)
         elif a.command=='fingerprint':result=fingerprints(read_json(a.spec))

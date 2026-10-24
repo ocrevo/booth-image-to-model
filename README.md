@@ -126,6 +126,7 @@ other agent at its `SKILL.md`.
 | write a scene description by hand | [references/scene-description.md](booth-image-to-model/references/scene-description.md) (Chinese) |
 | understand the spec format | [references/data-contract.md](booth-image-to-model/references/data-contract.md) (Chinese) and the [schema](booth-image-to-model/schemas/booth-spec-v2.schema.json) |
 | understand the design and the plan to make reading more accurate and faster | [docs/design-review-2026-10.md](docs/design-review-2026-10.md) |
+| follow the implementation guideline of the fidelity proof of concept (Chinese, one task card per work package) | [docs/poc/README.md](docs/poc/README.md) |
 | measure a version of the skill against the recorded baseline | [tools/eval/README.md](tools/eval/README.md), [BASELINE.md](tools/eval/BASELINE.md) |
 | contribute | [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md) for coding agents |
 | report a security problem | [SECURITY.md](SECURITY.md) |
@@ -138,5 +139,5 @@ other agent at its `SKILL.md`.
 ## Project
 
 The repository was renamed from `Booth2CAD` to `booth-image-to-model`; old links redirect.
-Version 2.10.0-rc1. Contributions are welcome under the [Apache License 2.0](LICENSE); please read [CONTRIBUTING.md](CONTRIBUTING.md)
+Version 3.1.0-rc7. Contributions are welcome under the [Apache License 2.0](LICENSE); please read [CONTRIBUTING.md](CONTRIBUTING.md)
 first and never attach client pictures. To cite the project, use [CITATION.cff](CITATION.cff).

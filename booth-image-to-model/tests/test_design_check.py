@@ -226,6 +226,100 @@ class DesignCheckTests(unittest.TestCase):
         self.assertEqual(result['status'], 'no_findings')
         self.assertEqual(result['not_checked'], [])
 
+    def test_design_check_runs_on_a_spec_with_canopy_frame(self):
+        import copy
+        import design_compile as dc
+        template = json.loads((ROOT / 'templates' / 'design_template.json').read_text(encoding='utf-8'))
+        for hanging in (None, True):
+            with self.subTest(hanging=hanging):
+                d = copy.deepcopy(template)
+                d['booth_type'] = 'island'
+                d['form'] = dict(d['form'], footprint_m=[8.0, 6.0], height_limit_m=4.5, open_sides=['front', 'back', 'left', 'right'],
+                                 hanging_allowed=hanging)
+                d['elements'] = [{'id': 'crown', 'kind': 'canopy_frame', 'size_m': [5.0, 3.0, 0.3],
+                                  'params': {'band_m': {'front': 0.3, 'back': 0.5, 'left': 0.4, 'right': 0.2},
+                                             'sign': {'corner': 'front_left', 'along_m': [1.2, 0.8], 'drop_m': 0.3, 'text_chars': 4}}}]
+                d['requirements'] = []
+                with tempfile.TemporaryDirectory() as tmp:
+                    spec, report = dc.compile_design(d, tmp, (320, 200))
+                self.assertEqual(report['dropped'], [])
+                ctx = {'height_limit_m': 4.5, 'open_sides': ['front', 'back', 'left', 'right']}
+                if hanging is not None:
+                    ctx['hanging_allowed'] = hanging
+                result = run(spec, ctx)
+                self.assertIn(result['status'], ('no_findings', 'info_only', 'advisory_findings'))
+                roles = {c['role'] for c in spec['components'] if c.get('group') == 'crown'}
+                self.assertTrue({'canopy_frame', 'canopy_sign'} <= roles)
+                unknown = [n for n in result['not_checked'] if 'canopy_frame' in n['reason'] and 'canopy_sign' in n['reason']]
+                self.assertEqual(len(unknown), 1, result['not_checked'])
+                self.assertNotIn('inside_footprint', {f['check'] for f in result['findings']})
+                self.assertNotIn('below_height_limit', {f['check'] for f in result['findings']})
+                support = [f for f in result['findings'] if f['check'] == 'support_path']
+                if hanging is True:
+                    self.assertTrue(all(f['level'] == 'info' for f in support), support)
+                else:
+                    self.assertEqual(support, [], 'the frame stands on its posts')
+
+    def test_design_check_runs_on_a_spec_with_lit_panel(self):
+        import copy
+        import design_compile as dc
+        template = json.loads((ROOT / 'templates' / 'design_template.json').read_text(encoding='utf-8'))
+        for niche in (None, {'width_m': 0.8, 'height_m': 1.4, 'bottom_m': 0.8, 'depth_m': 0.1, 'corner_radius_m': 0.4, 'ring_width_m': 0.04}):
+            with self.subTest(niche=bool(niche)):
+                d = copy.deepcopy(template)
+                d['booth_type'] = 'island'
+                d['form'] = dict(d['form'], footprint_m=[8.0, 6.0], height_limit_m=4.5, open_sides=['front', 'back', 'left', 'right'],
+                                 hanging_allowed=True)
+                d['elements'] = [{'id': 'glow', 'kind': 'lit_panel', 'side': 'centre', 'centre_m': [0.0, 0.0], 'size_m': [2.4, 0.15, 2.8],
+                                  'params': {'corner_radius_m': 0.5, 'niche': niche}}]
+                d['requirements'] = []
+                with tempfile.TemporaryDirectory() as tmp:
+                    spec, report = dc.compile_design(d, tmp, (320, 200))
+                self.assertEqual(report['dropped'], [])
+                result = run(spec, {'height_limit_m': 4.5, 'hanging_allowed': True, 'open_sides': ['front', 'back', 'left', 'right']})
+                self.assertIn(result['status'], ('no_findings', 'info_only', 'advisory_findings'))
+                roles = {c['role'] for c in spec['components'] if c.get('group') == 'glow'}
+                self.assertTrue({'lit_panel', 'lit_groove'} <= roles)
+                if niche:
+                    self.assertTrue({'lit_niche', 'lit_niche_light'} <= roles)
+                unknown = [n for n in result['not_checked'] if all(r in n['reason'] for r in sorted(roles))]
+                self.assertEqual(len(unknown), 1, (roles, result['not_checked']))
+                self.assertNotIn('inside_footprint', {f['check'] for f in result['findings']})
+                self.assertNotIn('below_height_limit', {f['check'] for f in result['findings']})
+                self.assertNotIn('support_path', {f['check'] for f in result['findings'] if f['level'] == 'advisory'})
+
+    def test_design_check_runs_on_a_spec_with_prop_block(self):
+        import copy
+        import design_compile as dc
+        template = json.loads((ROOT / 'templates' / 'design_template.json').read_text(encoding='utf-8'))
+        d = copy.deepcopy(template)
+        d['booth_type'] = 'island'
+        d['form'] = dict(d['form'], footprint_m=[8.0, 6.0], height_limit_m=4.5, open_sides=['front', 'back', 'left', 'right'],
+                         hanging_allowed=None)
+        # a laptop-sized block on a plinth (supported), a plant block on the floor and a robot block that stands on the floor
+        d['elements'] = [
+            {'id': 'stand', 'kind': 'display_plinth', 'side': 'centre', 'centre_m': [0.0, 0.0], 'size_m': [0.8, 0.8, 1.0]},
+            {'id': 'laptop_one', 'kind': 'prop_block', 'side': 'centre', 'centre_m': [0.0, 0.0], 'size_m': [0.36, 0.25, 0.22], 'z_m': 1.0,
+             'params': {'label': 'laptop'}},
+            {'id': 'plant_one', 'kind': 'prop_block', 'side': 'centre', 'centre_m': [2.0, 1.0], 'size_m': [0.5, 0.5, 0.9],
+             'params': {'label': 'plant'}},
+            {'id': 'arm_one', 'kind': 'prop_block', 'side': 'centre', 'centre_m': [-2.0, 1.0], 'size_m': [0.6, 0.6, 1.6],
+             'params': {'label': 'robot_arm'}, 'yaw_deg': 35.0},
+        ]
+        d['requirements'] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            spec, report = dc.compile_design(d, tmp, (320, 200))
+        self.assertEqual(report['dropped'], [])
+        result = run(spec, {'height_limit_m': 4.5, 'open_sides': ['front', 'back', 'left', 'right']})
+        self.assertIn(result['status'], ('no_findings', 'info_only', 'advisory_findings'))
+        self.assertEqual({c['role'] for c in spec['components'] if c['role'] == 'prop_block'}, {'prop_block'})
+        unknown = [n for n in result['not_checked'] if 'prop_block' in n['reason']]
+        self.assertEqual(len(unknown), 1, result['not_checked'])
+        self.assertEqual(unknown[0]['check'], 'role_specific_checks')
+        self.assertNotIn('inside_footprint', {f['check'] for f in result['findings']})
+        self.assertNotIn('below_height_limit', {f['check'] for f in result['findings']})
+        self.assertEqual([f for f in result['findings'] if f['check'] == 'support_path'], [], 'the blocks rest on the plinth or the floor')
+
     # ---- command line
     def test_cli_round_trip_and_invalid_input_exit_codes(self):
         d = Path(self._tmp.name)

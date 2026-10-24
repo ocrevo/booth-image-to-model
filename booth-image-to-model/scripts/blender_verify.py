@@ -8,7 +8,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 import bpy
 from common import read_json,write_json,digest,code_hash,file_sha,material_rgba
 from geometry import mesh_for
-from material_patterns import apply_grid,grid_graph_signature
+from material_patterns import apply_pattern,pattern_mismatch,material_set,projected_parts,expected_modifiers,UV_LAYER
 
 
 def main():
@@ -20,7 +20,16 @@ def main():
     scene=bpy.context.scene
     if scene.get('spec_sha256')!=digest(spec):errors.append('stale_spec')
     if scene.get('builder_sha256')!=code_hash():errors.append('stale_builder')
-    expected={c['id']:c for c in spec['components']};observed={}
+    # The reopened file is compared with the spec as the build saw it: neutral is the spec itself, a projected build the copy with every
+    # part projected (build_report.json beside the .blend names the set and lists projected parts it had to skip).
+    report_path=Path(a.blend).resolve().parent/'build_report.json'
+    build=read_json(report_path) if report_path.is_file() else {}
+    set_name=build.get('material_set','neutral')
+    try:look=material_set(spec,set_name)
+    except (ValueError,TypeError):errors.append('unknown_material_set:'+str(set_name));look=spec
+    projected=set(projected_parts(look))
+    skipped={item['id'] for item in build.get('projected_uv_skipped') or [] if isinstance(item,dict) and 'id' in item}&projected
+    expected={c['id']:c for c in look['components']};observed={}
     geometry_types={'MESH','FONT','CURVE','SURFACE','META','VOLUME','POINTCLOUD','GREASEPENCIL'}
     for obj in scene.objects:
         owner=obj.get('ownership')
@@ -31,12 +40,21 @@ def main():
             if owner!='booth' or ident not in expected:errors.append('unplanned_geometry:'+obj.name);continue
             if ident in observed:errors.append('duplicate_component:'+ident)
             observed[ident]=obj;c=expected[ident]
-            if obj.hide_render:errors.append('hidden_required_component:'+ident)
+            if obj.hide_render and ident not in skipped:errors.append('hidden_required_component:'+ident)
+            if ident in skipped and not obj.hide_render:errors.append('skipped_part_visible:'+ident)
             if obj.get('scope_id')!=c['scope_id']:errors.append('scope_mismatch:'+ident)
             if any(abs(obj.location[i]-c['location'][i])>1e-5 for i in range(3)):errors.append('placement_mismatch:'+ident)
             if any(abs(obj.rotation_euler[i]-math.radians(c['rotation_deg'][i]))>1e-5 for i in range(3)):errors.append('rotation_mismatch:'+ident)
             if any(abs(v-1)>1e-6 for v in obj.scale):errors.append('unplanned_scale:'+ident)
-            if obj.modifiers:errors.append('unreviewed_modifiers:'+ident)
+            wanted=expected_modifiers(look,ident,skipped);found=[(m.name,m.type) for m in obj.modifiers]
+            extra=list(found)
+            for item in wanted:
+                if item in extra:extra.remove(item)
+            if extra:errors.append('unreviewed_modifiers:'+ident)
+            if any(item not in found for item in wanted):errors.append('projected_modifier_missing:'+ident)
+            converted=c['kind']=='text' and ident in projected and ident not in skipped
+            if ident in projected and ident not in skipped and obj.type=='MESH' and obj.data.uv_layers.get(UV_LAYER) is None:
+                errors.append('projected_uv_missing:'+ident)
             if len(obj.data.materials)!=1 or not obj.data.materials[0].use_nodes:
                 errors.append('material_missing:'+ident)
             else:
@@ -51,17 +69,21 @@ def main():
                         if isinstance(expected_value,list):matches=all(abs(a-b)<1e-5 for a,b in zip(value,expected_value))
                         else:matches=abs(value-expected_value)<1e-5
                         if not matches:errors.append('material_parameter_mismatch:'+ident+':'+input_name)
-                    # Compare the actual reopened graph to the shared pattern
-                    # builder, including coordinate mapping, intervals and links.
+                    # Compare the actual reopened graph to the shared pattern builder of its type (PATTERNS:
+                    # grid, dots, grain or projected), including coordinate mapping, intervals and links.
                     expected_mat=bpy.data.materials.new('_verification_pattern');expected_mat.use_nodes=True
                     expected_mat.node_tree.nodes.clear()
                     expected_shader=expected_mat.node_tree.nodes.new('ShaderNodeBsdfPrincipled')
                     expected_shader.name=shader.name
-                    apply_grid(expected_mat.node_tree.nodes,expected_mat.node_tree.links,expected_shader,params,c)
-                    if grid_graph_signature(mat.node_tree)!=grid_graph_signature(expected_mat.node_tree):
-                        errors.append('material_pattern_mismatch:'+ident)
+                    pattern=params.get('pattern');kind=pattern.get('type') if isinstance(pattern,dict) else None
+                    try:
+                        apply_pattern(expected_mat.node_tree.nodes,expected_mat.node_tree.links,expected_shader,params,c)
+                        if pattern_mismatch(mat.node_tree,expected_mat.node_tree,kind):errors.append('material_pattern_mismatch:'+ident)
+                    except (ValueError,KeyError,TypeError,RuntimeError):errors.append('material_pattern_invalid:'+ident)
                     bpy.data.materials.remove(expected_mat)
-            if c['kind']=='text':
+            if converted:
+                if obj.type!='MESH':errors.append('projected_text_not_converted:'+ident)
+            elif c['kind']=='text':
                 if obj.type!='FONT':errors.append('text_mismatch:'+ident)
                 else:
                     params=c['params']
